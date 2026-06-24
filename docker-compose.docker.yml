@@ -1,0 +1,36 @@
+services:
+  traefik:
+    image: traefik:v3.1
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=tiny-provisioner-apps
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --api.dashboard=true
+      - --api.insecure=true
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - provisioned-apps
+
+  worker:
+    environment:
+      PROVISIONER_BACKEND: docker
+      DOCKER_NETWORK_NAME: tiny-provisioner-apps
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  tiny-python-http-app:
+    build: ./provisioned_templates/tiny-python-http-app
+    image: tiny-python-http-app:local
+    profiles:
+      - templates
+
+networks:
+  provisioned-apps:
+    name: tiny-provisioner-apps
