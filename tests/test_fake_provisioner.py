@@ -32,7 +32,17 @@ class FakeProvisionerTest(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_logs_are_deterministic_across_fake_instances(self) -> None:
+        async def scenario() -> None:
+            provisioner = FakeProvisioner(base_domain="apps.test")
+
+            logs = await provisioner.logs(external_id="fake-123")
+
+            self.assertIn("fake backend log stream for fake-123", logs)
+            self.assertIn("no real container was created", logs)
+
+        asyncio.run(scenario())
+
 
 if __name__ == "__main__":
     unittest.main()
-

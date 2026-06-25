@@ -44,5 +44,12 @@ class FakeProvisioner:
         self._logs.setdefault(external_id, []).append("deleted fake resource")
 
     async def logs(self, *, external_id: str, tail: int = 100) -> str:
-        lines = self._logs.get(external_id, [f"no logs for {external_id}"])
+        lines = self._logs.get(
+            external_id,
+            [
+                f"fake backend log stream for {external_id}",
+                "no real container was created",
+                "use PROVISIONER_BACKEND=docker to read Docker logs",
+            ],
+        )
         return "\n".join(lines[-tail:])

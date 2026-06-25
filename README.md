@@ -108,6 +108,7 @@ The quota protects host capacity and cost. The expiration time makes forgotten r
 
 ## Next Lessons
 
+- Run local runtime validation in `docs/LOCAL_RUNTIME_VALIDATION.md`.
 - Follow the VPS deployment runbook in `docs/VPS_RUNBOOK.md`.
 - Review the security checklist in `docs/SECURITY_CHECKLIST.md`.
 - Add host security hardening.
