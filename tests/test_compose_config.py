@@ -22,6 +22,12 @@ def test_worker_gets_docker_socket_only_in_docker_override() -> None:
     assert "/var/run/docker.sock:/var/run/docker.sock" in docker_override
 
 
+def test_dev_compose_api_does_not_use_reload_watcher() -> None:
+    compose = Path("docker-compose.yml").read_text()
+
+    assert "--reload" not in compose
+
+
 def test_production_compose_does_not_publish_datastores_or_api_directly() -> None:
     compose = Path("docker-compose.prod.yml").read_text()
 

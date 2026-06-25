@@ -24,6 +24,13 @@ Before changing this code, answer these out loud:
 - Why does provisioning run in a worker?
 - What should happen if the worker crashes halfway through a job?
 
+For a structured study path, start with:
+
+- [Study Guide](docs/STUDY_GUIDE.md)
+- [Guided Code Walkthrough](docs/CODE_WALKTHROUGH.md)
+- [Glossary](docs/GLOSSARY.md)
+- [Flashcards And Labs](docs/FLASHCARDS_AND_LABS.md)
+
 ## Local Setup
 
 Copy the environment file:
