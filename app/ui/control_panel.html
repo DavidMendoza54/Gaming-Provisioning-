@@ -1,0 +1,814 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TinyProvisioner Control Panel</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f7f9;
+        --surface: #ffffff;
+        --surface-alt: #eef3f6;
+        --text: #1f2933;
+        --muted: #65758b;
+        --line: #d8e0e8;
+        --accent: #0f766e;
+        --accent-strong: #115e59;
+        --danger: #b42318;
+        --warning: #a16207;
+        --ok: #15803d;
+        --ink: #111827;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+
+      button {
+        min-height: 36px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--surface);
+        color: var(--ink);
+        cursor: pointer;
+        padding: 0 12px;
+      }
+
+      button:hover {
+        border-color: var(--accent);
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+
+      .primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #ffffff;
+      }
+
+      .primary:hover {
+        background: var(--accent-strong);
+      }
+
+      .danger {
+        color: var(--danger);
+      }
+
+      input,
+      select {
+        width: 100%;
+        min-height: 38px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #ffffff;
+        color: var(--text);
+        padding: 0 10px;
+      }
+
+      label {
+        display: grid;
+        gap: 6px;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .shell {
+        min-height: 100vh;
+        display: grid;
+        grid-template-rows: auto 1fr;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 14px 22px;
+        border-bottom: 1px solid var(--line);
+        background: var(--surface);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+      }
+
+      .mark {
+        width: 32px;
+        height: 32px;
+        border-radius: 6px;
+        display: grid;
+        place-items: center;
+        background: var(--ink);
+        color: #ffffff;
+        font-weight: 800;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 18px;
+      }
+
+      h2 {
+        font-size: 16px;
+      }
+
+      h3 {
+        font-size: 14px;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 30px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 0 10px;
+        background: var(--surface-alt);
+        font-size: 13px;
+      }
+
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--warning);
+      }
+
+      .dot.ok {
+        background: var(--ok);
+      }
+
+      main {
+        display: grid;
+        grid-template-columns: minmax(280px, 340px) 1fr minmax(300px, 420px);
+        gap: 16px;
+        padding: 16px;
+      }
+
+      section {
+        min-width: 0;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+
+      .panel-head {
+        min-height: 54px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .panel-body {
+        padding: 14px;
+      }
+
+      .stack {
+        display: grid;
+        gap: 12px;
+      }
+
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .row > * {
+        flex: 1;
+      }
+
+      .row > button,
+      .row > a {
+        flex: 0 0 auto;
+      }
+
+      .resource-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .resource-item {
+        width: 100%;
+        display: grid;
+        gap: 4px;
+        text-align: left;
+        min-height: 74px;
+        padding: 10px;
+      }
+
+      .resource-item.active {
+        border-color: var(--accent);
+        box-shadow: inset 3px 0 0 var(--accent);
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        width: fit-content;
+        min-height: 24px;
+        border-radius: 999px;
+        padding: 0 9px;
+        background: var(--surface-alt);
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .badge.running {
+        color: var(--ok);
+      }
+
+      .badge.failed,
+      .badge.deleted {
+        color: var(--danger);
+      }
+
+      .badge.provisioning,
+      .badge.starting,
+      .badge.stopping,
+      .badge.deleting {
+        color: var(--warning);
+      }
+
+      .detail-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .metric {
+        min-height: 64px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 10px;
+        background: #fbfcfd;
+      }
+
+      .metric strong {
+        display: block;
+        color: var(--ink);
+        font-size: 15px;
+        margin-top: 4px;
+        overflow-wrap: anywhere;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .terminal {
+        min-height: 180px;
+        max-height: 280px;
+        overflow: auto;
+        border-radius: 6px;
+        padding: 12px;
+        background: #101820;
+        color: #d7e2ea;
+        font-family: "Cascadia Mono", Consolas, monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+      }
+
+      .events {
+        display: grid;
+        gap: 8px;
+        max-height: 300px;
+        overflow: auto;
+      }
+
+      .event {
+        border-left: 3px solid var(--line);
+        padding-left: 10px;
+        display: grid;
+        gap: 2px;
+      }
+
+      .event strong {
+        font-size: 13px;
+      }
+
+      a {
+        color: var(--accent-strong);
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      a:hover {
+        text-decoration: underline;
+      }
+
+      .message {
+        min-height: 20px;
+        color: var(--danger);
+        font-size: 13px;
+      }
+
+      .hidden {
+        display: none;
+      }
+
+      @media (max-width: 1080px) {
+        main {
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .side-detail {
+          grid-column: 1 / -1;
+        }
+      }
+
+      @media (max-width: 740px) {
+        header {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        main {
+          grid-template-columns: 1fr;
+          padding: 10px;
+        }
+
+        .row,
+        .actions {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .row > button,
+        .row > a {
+          width: 100%;
+        }
+
+        .detail-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header>
+        <div class="brand">
+          <div class="mark">TP</div>
+          <div>
+            <h1>TinyProvisioner</h1>
+            <p class="muted">Control Panel</p>
+          </div>
+        </div>
+        <div class="row" style="flex: 0 1 auto">
+          <div class="status"><span id="health-dot" class="dot"></span><span id="health-text">Checking</span></div>
+          <button id="logout-button" class="hidden">Log out</button>
+        </div>
+      </header>
+
+      <main>
+        <section>
+          <div class="panel-head">
+            <h2>Session</h2>
+            <span id="session-email" class="muted">Signed out</span>
+          </div>
+          <div class="panel-body stack">
+            <label>
+              Email
+              <input id="email-input" autocomplete="email" value="demo@example.local" />
+            </label>
+            <label>
+              Password
+              <input id="password-input" type="password" autocomplete="current-password" value="correct-horse-battery" />
+            </label>
+            <div class="row">
+              <button id="login-button" class="primary">Log in</button>
+              <button id="register-button">Register</button>
+            </div>
+            <p id="auth-message" class="message"></p>
+          </div>
+        </section>
+
+        <section>
+          <div class="panel-head">
+            <h2>Resources</h2>
+            <button id="refresh-button">Refresh</button>
+          </div>
+          <div class="panel-body stack">
+            <div class="row">
+              <label>
+                Template
+                <select id="template-select"></select>
+              </label>
+              <label>
+                Name
+                <input id="resource-name-input" value="Demo App" />
+              </label>
+              <button id="create-button" class="primary">Create</button>
+            </div>
+            <p id="resource-message" class="message"></p>
+            <div id="resource-list" class="resource-list"></div>
+          </div>
+        </section>
+
+        <section class="side-detail">
+          <div class="panel-head">
+            <h2>Selected Resource</h2>
+            <span id="selected-state" class="badge">None</span>
+          </div>
+          <div class="panel-body stack">
+            <div id="empty-detail" class="muted">No resource selected.</div>
+            <div id="detail-content" class="stack hidden">
+              <div class="detail-grid">
+                <div class="metric">
+                  <span class="muted">URL</span>
+                  <strong id="detail-url">None</strong>
+                </div>
+                <div class="metric">
+                  <span class="muted">Capacity</span>
+                  <strong id="detail-capacity">None</strong>
+                </div>
+                <div class="metric">
+                  <span class="muted">Desired</span>
+                  <strong id="detail-desired">None</strong>
+                </div>
+                <div class="metric">
+                  <span class="muted">Created</span>
+                  <strong id="detail-created">None</strong>
+                </div>
+              </div>
+              <div class="actions">
+                <a id="open-link" href="#" target="_blank" rel="noreferrer">Open</a>
+                <button id="start-button">Start</button>
+                <button id="stop-button">Stop</button>
+                <button id="restart-button">Restart</button>
+                <button id="delete-button" class="danger">Delete</button>
+              </div>
+              <div class="stack">
+                <h3>Logs</h3>
+                <pre id="logs-output" class="terminal"></pre>
+              </div>
+              <div class="stack">
+                <h3>Events</h3>
+                <div id="events-list" class="events"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const state = {
+        token: localStorage.getItem("tinyProvisionerToken"),
+        user: JSON.parse(localStorage.getItem("tinyProvisionerUser") || "null"),
+        templates: [],
+        resources: [],
+        selectedId: Number(localStorage.getItem("tinyProvisionerSelectedId") || 0) || null,
+      };
+
+      const elements = {
+        healthDot: document.querySelector("#health-dot"),
+        healthText: document.querySelector("#health-text"),
+        logoutButton: document.querySelector("#logout-button"),
+        sessionEmail: document.querySelector("#session-email"),
+        emailInput: document.querySelector("#email-input"),
+        passwordInput: document.querySelector("#password-input"),
+        loginButton: document.querySelector("#login-button"),
+        registerButton: document.querySelector("#register-button"),
+        authMessage: document.querySelector("#auth-message"),
+        refreshButton: document.querySelector("#refresh-button"),
+        templateSelect: document.querySelector("#template-select"),
+        resourceNameInput: document.querySelector("#resource-name-input"),
+        createButton: document.querySelector("#create-button"),
+        resourceMessage: document.querySelector("#resource-message"),
+        resourceList: document.querySelector("#resource-list"),
+        emptyDetail: document.querySelector("#empty-detail"),
+        detailContent: document.querySelector("#detail-content"),
+        selectedState: document.querySelector("#selected-state"),
+        detailUrl: document.querySelector("#detail-url"),
+        detailCapacity: document.querySelector("#detail-capacity"),
+        detailDesired: document.querySelector("#detail-desired"),
+        detailCreated: document.querySelector("#detail-created"),
+        openLink: document.querySelector("#open-link"),
+        startButton: document.querySelector("#start-button"),
+        stopButton: document.querySelector("#stop-button"),
+        restartButton: document.querySelector("#restart-button"),
+        deleteButton: document.querySelector("#delete-button"),
+        logsOutput: document.querySelector("#logs-output"),
+        eventsList: document.querySelector("#events-list"),
+      };
+
+      function setMessage(target, message) {
+        target.textContent = message || "";
+      }
+
+      async function api(path, options = {}) {
+        const headers = { Accept: "application/json", ...(options.headers || {}) };
+        if (options.body) {
+          headers["Content-Type"] = "application/json";
+        }
+        if (state.token) {
+          headers.Authorization = `Bearer ${state.token}`;
+        }
+        const response = await fetch(path, { ...options, headers });
+        const text = await response.text();
+        const data = text ? JSON.parse(text) : {};
+        if (!response.ok) {
+          throw new Error(data.detail || `${response.status} ${response.statusText}`);
+        }
+        return data;
+      }
+
+      function saveSession(tokenResponse) {
+        state.token = tokenResponse.access_token;
+        state.user = tokenResponse.user;
+        localStorage.setItem("tinyProvisionerToken", state.token);
+        localStorage.setItem("tinyProvisionerUser", JSON.stringify(state.user));
+        renderSession();
+      }
+
+      function clearSession() {
+        state.token = null;
+        state.user = null;
+        state.resources = [];
+        state.selectedId = null;
+        localStorage.removeItem("tinyProvisionerToken");
+        localStorage.removeItem("tinyProvisionerUser");
+        localStorage.removeItem("tinyProvisionerSelectedId");
+        renderSession();
+        renderResources();
+        renderDetail();
+      }
+
+      function renderSession() {
+        elements.sessionEmail.textContent = state.user ? state.user.email : "Signed out";
+        elements.logoutButton.classList.toggle("hidden", !state.token);
+        elements.createButton.disabled = !state.token;
+        elements.refreshButton.disabled = !state.token;
+      }
+
+      function stateBadgeClass(resource) {
+        return `badge ${resource ? resource.actual_state : ""}`;
+      }
+
+      function renderTemplates() {
+        elements.templateSelect.innerHTML = "";
+        for (const template of state.templates) {
+          const option = document.createElement("option");
+          option.value = template.id;
+          option.textContent = `${template.name} (${template.default_memory_mb} MB)`;
+          elements.templateSelect.append(option);
+        }
+      }
+
+      function renderResources() {
+        elements.resourceList.innerHTML = "";
+        if (!state.resources.length) {
+          const empty = document.createElement("p");
+          empty.className = "muted";
+          empty.textContent = state.token ? "No resources yet." : "Sign in to view resources.";
+          elements.resourceList.append(empty);
+          return;
+        }
+
+        for (const resource of state.resources) {
+          const button = document.createElement("button");
+          button.className = `resource-item ${resource.id === state.selectedId ? "active" : ""}`;
+          button.innerHTML = `
+            <strong>${resource.slug}</strong>
+            <span class="${stateBadgeClass(resource)}">${resource.actual_state}</span>
+            <span class="muted">${resource.cpu_limit} CPU / ${resource.memory_mb} MB</span>
+          `;
+          button.addEventListener("click", () => selectResource(resource.id));
+          elements.resourceList.append(button);
+        }
+      }
+
+      function selectedResource() {
+        return state.resources.find((resource) => resource.id === state.selectedId) || null;
+      }
+
+      function renderDetail() {
+        const resource = selectedResource();
+        elements.emptyDetail.classList.toggle("hidden", Boolean(resource));
+        elements.detailContent.classList.toggle("hidden", !resource);
+        elements.selectedState.className = stateBadgeClass(resource);
+        elements.selectedState.textContent = resource ? resource.actual_state : "None";
+
+        if (!resource) {
+          return;
+        }
+
+        elements.detailUrl.textContent = resource.url || "None";
+        elements.detailCapacity.textContent = `${resource.cpu_limit} CPU / ${resource.memory_mb} MB`;
+        elements.detailDesired.textContent = resource.desired_state;
+        elements.detailCreated.textContent = new Date(resource.created_at).toLocaleString();
+        elements.openLink.href = resource.url || "#";
+        elements.openLink.classList.toggle("hidden", !resource.url);
+
+        const busy = ["pending", "provisioning", "starting", "stopping", "deleting"].includes(resource.actual_state);
+        elements.startButton.disabled = busy || resource.actual_state === "running" || resource.actual_state === "deleted";
+        elements.stopButton.disabled = busy || resource.actual_state !== "running";
+        elements.restartButton.disabled = busy || resource.actual_state !== "running";
+        elements.deleteButton.disabled = busy || resource.actual_state === "deleted";
+      }
+
+      function renderEvents(events) {
+        elements.eventsList.innerHTML = "";
+        if (!events.length) {
+          const empty = document.createElement("p");
+          empty.className = "muted";
+          empty.textContent = "No events yet.";
+          elements.eventsList.append(empty);
+          return;
+        }
+
+        for (const event of events) {
+          const item = document.createElement("div");
+          item.className = "event";
+          item.innerHTML = `
+            <strong>${event.event_type}</strong>
+            <span>${event.message}</span>
+            <span class="muted">${new Date(event.created_at).toLocaleString()}</span>
+          `;
+          elements.eventsList.append(item);
+        }
+      }
+
+      async function checkHealth() {
+        try {
+          await api("/health");
+          elements.healthDot.classList.add("ok");
+          elements.healthText.textContent = "API online";
+        } catch (error) {
+          elements.healthDot.classList.remove("ok");
+          elements.healthText.textContent = "API offline";
+        }
+      }
+
+      async function login(register = false) {
+        setMessage(elements.authMessage, "");
+        try {
+          const payload = {
+            email: elements.emailInput.value,
+            password: elements.passwordInput.value,
+          };
+          const response = await api(register ? "/auth/register" : "/auth/login", {
+            method: "POST",
+            body: JSON.stringify(payload),
+          });
+          saveSession(response);
+          await loadAll();
+        } catch (error) {
+          setMessage(elements.authMessage, error.message);
+        }
+      }
+
+      async function loadTemplates() {
+        state.templates = await api("/templates");
+        renderTemplates();
+      }
+
+      async function loadResources() {
+        if (!state.token) {
+          return;
+        }
+        state.resources = await api("/resources");
+        if (state.selectedId && !selectedResource()) {
+          state.selectedId = state.resources[0]?.id || null;
+        }
+        if (!state.selectedId && state.resources.length) {
+          state.selectedId = state.resources[0].id;
+        }
+        renderResources();
+        renderDetail();
+      }
+
+      async function loadSelectedDetails() {
+        const resource = selectedResource();
+        if (!state.token || !resource) {
+          return;
+        }
+        try {
+          const [events, logs] = await Promise.all([
+            api(`/resources/${resource.id}/events`),
+            resource.external_id ? api(`/resources/${resource.id}/logs`) : Promise.resolve({ logs: "" }),
+          ]);
+          renderEvents(events);
+          elements.logsOutput.textContent = logs.logs || "";
+        } catch (error) {
+          elements.logsOutput.textContent = error.message;
+        }
+      }
+
+      async function loadAll() {
+        await loadTemplates();
+        await loadResources();
+        await loadSelectedDetails();
+      }
+
+      async function selectResource(resourceId) {
+        state.selectedId = resourceId;
+        localStorage.setItem("tinyProvisionerSelectedId", String(resourceId));
+        renderResources();
+        renderDetail();
+        await loadSelectedDetails();
+      }
+
+      async function createResource() {
+        setMessage(elements.resourceMessage, "");
+        try {
+          const templateId = Number(elements.templateSelect.value);
+          const name = elements.resourceNameInput.value;
+          const resource = await api("/resources", {
+            method: "POST",
+            body: JSON.stringify({ template_id: templateId, name }),
+          });
+          state.selectedId = resource.id;
+          await loadResources();
+          await loadSelectedDetails();
+        } catch (error) {
+          setMessage(elements.resourceMessage, error.message);
+        }
+      }
+
+      async function resourceAction(action) {
+        const resource = selectedResource();
+        if (!resource) {
+          return;
+        }
+        setMessage(elements.resourceMessage, "");
+        try {
+          const path = action === "delete" ? `/resources/${resource.id}` : `/resources/${resource.id}/${action}`;
+          await api(path, { method: action === "delete" ? "DELETE" : "POST" });
+          await loadResources();
+          await loadSelectedDetails();
+        } catch (error) {
+          setMessage(elements.resourceMessage, error.message);
+        }
+      }
+
+      elements.loginButton.addEventListener("click", () => login(false));
+      elements.registerButton.addEventListener("click", () => login(true));
+      elements.logoutButton.addEventListener("click", clearSession);
+      elements.refreshButton.addEventListener("click", loadAll);
+      elements.createButton.addEventListener("click", createResource);
+      elements.startButton.addEventListener("click", () => resourceAction("start"));
+      elements.stopButton.addEventListener("click", () => resourceAction("stop"));
+      elements.restartButton.addEventListener("click", () => resourceAction("restart"));
+      elements.deleteButton.addEventListener("click", () => resourceAction("delete"));
+
+      renderSession();
+      renderResources();
+      renderDetail();
+      checkHealth();
+      loadTemplates().catch(() => {});
+      if (state.token) {
+        loadAll().catch((error) => setMessage(elements.authMessage, error.message));
+      }
+      setInterval(() => {
+        checkHealth();
+        if (state.token) {
+          loadResources()
+            .then(loadSelectedDetails)
+            .catch(() => {});
+        }
+      }, 3000);
+    </script>
+  </body>
+</html>
