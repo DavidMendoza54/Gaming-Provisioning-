@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from app.provisioners.base import ProvisionedResource
@@ -14,11 +15,17 @@ class DockerProvisioner:
         base_domain: str,
         public_scheme: str = "https",
         network_name: str,
+        traefik_dynamic_config_path: str | None = None,
+        traefik_cert_resolver: str | None = None,
         client: Any | None = None,
     ) -> None:
         self.base_domain = base_domain
         self.public_scheme = public_scheme
         self.network_name = network_name
+        self.traefik_dynamic_config_path = (
+            Path(traefik_dynamic_config_path) if traefik_dynamic_config_path else None
+        )
+        self.traefik_cert_resolver = traefik_cert_resolver
         self.client = client or self._client_from_environment()
 
     async def provision(
@@ -35,6 +42,7 @@ class DockerProvisioner:
         existing = self._get_container_or_none(container_name)
         if existing is not None:
             self._start_if_needed(existing)
+            self._refresh_traefik_routes()
             return ProvisionedResource(
                 external_id=existing.id,
                 url=self._url(slug),
@@ -58,6 +66,7 @@ class DockerProvisioner:
             read_only=True,
             tmpfs={"/tmp": "rw,noexec,nosuid,size=64m"},
         )
+        self._refresh_traefik_routes()
         return ProvisionedResource(
             external_id=container.id,
             url=self._url(slug),
@@ -67,21 +76,25 @@ class DockerProvisioner:
     async def start(self, *, external_id: str) -> None:
         container = self.client.containers.get(external_id)
         self._start_if_needed(container)
+        self._refresh_traefik_routes()
 
     async def stop(self, *, external_id: str) -> None:
         container = self.client.containers.get(external_id)
         if getattr(container, "status", None) != "exited":
             container.stop(timeout=10)
+        self._refresh_traefik_routes()
 
     async def delete(self, *, external_id: str) -> None:
         try:
             container = self.client.containers.get(external_id)
         except Exception as exc:
             if self._is_not_found(exc):
+                self._refresh_traefik_routes()
                 return
             raise
 
         container.remove(force=True)
+        self._refresh_traefik_routes()
 
     async def logs(self, *, external_id: str, tail: int = 100) -> str:
         container = self.client.containers.get(external_id)
@@ -123,19 +136,12 @@ class DockerProvisioner:
             container.start()
 
     def _labels(self, *, resource_id: int, slug: str, exposed_port: int) -> dict[str, str]:
-        router_name = f"tp-{resource_id}"
         return {
             "tiny-provisioner.managed": "true",
             "tiny-provisioner.resource-id": str(resource_id),
             "tiny-provisioner.slug": slug,
-            "traefik.enable": "true",
-            "traefik.docker.network": self.network_name,
-            f"traefik.http.routers.{router_name}-web.rule": f"Host(`{slug}.{self.base_domain}`)",
-            f"traefik.http.routers.{router_name}-web.entrypoints": "web",
-            f"traefik.http.routers.{router_name}-secure.rule": f"Host(`{slug}.{self.base_domain}`)",
-            f"traefik.http.routers.{router_name}-secure.entrypoints": "websecure",
-            f"traefik.http.routers.{router_name}-secure.tls": "true",
-            f"traefik.http.services.{router_name}.loadbalancer.server.port": str(exposed_port),
+            "tiny-provisioner.route-host": f"{slug}.{self.base_domain}",
+            "tiny-provisioner.exposed-port": str(exposed_port),
         }
 
     def _container_name(self, slug: str) -> str:
@@ -149,3 +155,74 @@ class DockerProvisioner:
 
     def _is_not_found(self, exc: Exception) -> bool:
         return exc.__class__.__name__ == "NotFound"
+
+    def _refresh_traefik_routes(self) -> None:
+        if self.traefik_dynamic_config_path is None:
+            return
+
+        routes = []
+        containers = self.client.containers.list(filters={"label": "tiny-provisioner.managed=true"})
+        for container in containers:
+            labels = getattr(container, "labels", None) or container.attrs.get("Config", {}).get("Labels", {})
+            resource_id = labels.get("tiny-provisioner.resource-id")
+            host = labels.get("tiny-provisioner.route-host")
+            port = labels.get("tiny-provisioner.exposed-port")
+            container_name = getattr(container, "name", None)
+            if not resource_id or not host or not port or not container_name:
+                continue
+            routes.append(
+                {
+                    "service": f"tp-{resource_id}",
+                    "host": host,
+                    "port": port,
+                    "container_name": container_name,
+                }
+            )
+
+        self._write_traefik_dynamic_config(routes)
+
+    def _write_traefik_dynamic_config(self, routes: list[dict[str, str]]) -> None:
+        assert self.traefik_dynamic_config_path is not None
+
+        path = self.traefik_dynamic_config_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        content = self._render_traefik_dynamic_config(routes)
+        temp_path = path.with_suffix(f"{path.suffix}.tmp")
+        temp_path.write_text(content, encoding="utf-8")
+        temp_path.replace(path)
+
+    def _render_traefik_dynamic_config(self, routes: list[dict[str, str]]) -> str:
+        if not routes:
+            return "{}\n"
+
+        entrypoint = "websecure" if self.public_scheme == "https" else "web"
+        lines = ["http:", "  routers:"]
+        for route in sorted(routes, key=lambda item: item["service"]):
+            lines.extend(
+                [
+                    f"    {route['service']}:",
+                    f"      rule: \"Host(`{route['host']}`)\"",
+                    "      entryPoints:",
+                    f"        - {entrypoint}",
+                    f"      service: {route['service']}",
+                ]
+            )
+            if self.public_scheme == "https":
+                if self.traefik_cert_resolver:
+                    lines.append("      tls:")
+                    lines.append(f"        certResolver: {self.traefik_cert_resolver}")
+                else:
+                    lines.append("      tls: {}")
+
+        lines.append("  services:")
+        for route in sorted(routes, key=lambda item: item["service"]):
+            lines.extend(
+                [
+                    f"    {route['service']}:",
+                    "      loadBalancer:",
+                    "        servers:",
+                    f"          - url: \"http://{route['container_name']}:{route['port']}\"",
+                ]
+            )
+
+        return "\n".join(lines) + "\n"

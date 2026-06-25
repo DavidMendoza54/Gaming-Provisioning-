@@ -32,9 +32,18 @@ class FakeNetworks:
 
 
 class FakeContainer:
-    def __init__(self, container_id: str, status: str = "running") -> None:
+    def __init__(
+        self,
+        container_id: str,
+        status: str = "running",
+        name: str = "tp-demo-app",
+        labels: dict[str, str] | None = None,
+    ) -> None:
         self.id = container_id
         self.status = status
+        self.name = name
+        self.labels = labels or {}
+        self.attrs = {"Config": {"Labels": self.labels}}
         self.started = False
         self.stopped = False
         self.removed = False
@@ -51,6 +60,7 @@ class FakeContainer:
     def remove(self, force: bool) -> None:
         self.removed = True
         self.remove_force = force
+        self.status = "removed"
 
     def logs(self, tail: int) -> bytes:
         return f"last {tail} log lines".encode()
@@ -68,11 +78,31 @@ class FakeContainers:
             raise NotFound(key) from exc
 
     def run(self, **kwargs: Any) -> FakeContainer:
-        container = FakeContainer(container_id="container-1")
+        container = FakeContainer(
+            container_id="container-1",
+            name=kwargs["name"],
+            labels=kwargs["labels"],
+        )
         self.containers[kwargs["name"]] = container
         self.containers[container.id] = container
         self.run_calls.append(kwargs)
         return container
+
+    def list(self, filters: dict[str, str] | None = None) -> list[FakeContainer]:
+        label_filter = (filters or {}).get("label")
+        seen: set[int] = set()
+        containers = []
+        for container in self.containers.values():
+            identity = id(container)
+            if identity in seen or container.status != "running":
+                continue
+            seen.add(identity)
+            if label_filter is not None:
+                key, _, value = label_filter.partition("=")
+                if container.labels.get(key) != value:
+                    continue
+            containers.append(container)
+        return containers
 
 
 class FakeDockerClient:
@@ -81,11 +111,19 @@ class FakeDockerClient:
         self.networks = FakeNetworks()
 
 
-def make_docker_provisioner(client: FakeDockerClient) -> DockerProvisioner:
+def make_docker_provisioner(
+    client: FakeDockerClient,
+    *,
+    dynamic_config_path: str | None = None,
+    public_scheme: str = "http",
+    cert_resolver: str | None = None,
+) -> DockerProvisioner:
     return DockerProvisioner(
         base_domain="apps.example.test",
-        public_scheme="http",
+        public_scheme=public_scheme,
         network_name="tiny-provisioner-apps",
+        traefik_dynamic_config_path=dynamic_config_path,
+        traefik_cert_resolver=cert_resolver,
         client=client,
     )
 
@@ -121,23 +159,87 @@ def test_docker_provisioner_creates_container_without_publishing_host_ports() ->
     assert run_call["read_only"] is True
     assert run_call["labels"]["tiny-provisioner.resource-id"] == "42"
     assert run_call["labels"]["tiny-provisioner.slug"] == "demo-app"
-    assert run_call["labels"]["traefik.enable"] == "true"
-    assert run_call["labels"]["traefik.docker.network"] == "tiny-provisioner-apps"
-    assert (
-        run_call["labels"]["traefik.http.routers.tp-42-web.rule"]
-        == "Host(`demo-app.apps.example.test`)"
+    assert run_call["labels"]["tiny-provisioner.route-host"] == "demo-app.apps.example.test"
+    assert run_call["labels"]["tiny-provisioner.exposed-port"] == "8000"
+    assert "traefik.enable" not in run_call["labels"]
+
+
+def test_docker_provisioner_writes_traefik_file_config(tmp_path) -> None:
+    client = FakeDockerClient()
+    dynamic_config_path = tmp_path / "apps.yml"
+    provisioner = make_docker_provisioner(
+        client,
+        dynamic_config_path=str(dynamic_config_path),
     )
-    assert run_call["labels"]["traefik.http.routers.tp-42-web.entrypoints"] == "web"
-    assert (
-        run_call["labels"]["traefik.http.routers.tp-42-secure.rule"]
-        == "Host(`demo-app.apps.example.test`)"
+
+    asyncio.run(
+        provisioner.provision(
+            resource_id=42,
+            slug="demo-app",
+            image="tiny-python-http-app:local",
+            exposed_port=8000,
+            cpu_limit=2,
+            memory_mb=256,
+        )
     )
-    assert run_call["labels"]["traefik.http.routers.tp-42-secure.entrypoints"] == "websecure"
-    assert run_call["labels"]["traefik.http.routers.tp-42-secure.tls"] == "true"
-    assert (
-        run_call["labels"]["traefik.http.services.tp-42.loadbalancer.server.port"]
-        == "8000"
+
+    content = dynamic_config_path.read_text()
+
+    assert 'rule: "Host(`demo-app.apps.example.test`)"' in content
+    assert "        - web" in content
+    assert "      service: tp-42" in content
+    assert '          - url: "http://tp-demo-app:8000"' in content
+
+
+def test_docker_provisioner_writes_https_route_with_cert_resolver(tmp_path) -> None:
+    client = FakeDockerClient()
+    dynamic_config_path = tmp_path / "apps.yml"
+    provisioner = make_docker_provisioner(
+        client,
+        dynamic_config_path=str(dynamic_config_path),
+        public_scheme="https",
+        cert_resolver="letsencrypt",
     )
+
+    asyncio.run(
+        provisioner.provision(
+            resource_id=42,
+            slug="demo-app",
+            image="tiny-python-http-app:local",
+            exposed_port=8000,
+            cpu_limit=2,
+            memory_mb=256,
+        )
+    )
+
+    content = dynamic_config_path.read_text()
+
+    assert "        - websecure" in content
+    assert "      tls:" in content
+    assert "        certResolver: letsencrypt" in content
+
+
+def test_docker_provisioner_writes_empty_config_after_delete(tmp_path) -> None:
+    client = FakeDockerClient()
+    dynamic_config_path = tmp_path / "apps.yml"
+    provisioner = make_docker_provisioner(
+        client,
+        dynamic_config_path=str(dynamic_config_path),
+    )
+
+    asyncio.run(
+        provisioner.provision(
+            resource_id=42,
+            slug="demo-app",
+            image="tiny-python-http-app:local",
+            exposed_port=8000,
+            cpu_limit=2,
+            memory_mb=256,
+        )
+    )
+    asyncio.run(provisioner.delete(external_id="container-1"))
+
+    assert dynamic_config_path.read_text() == "{}\n"
 
 
 def test_docker_provisioner_is_idempotent_for_existing_container() -> None:

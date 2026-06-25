@@ -2,6 +2,8 @@
 
 This runbook is for the first public demo: one Ubuntu VPS, Docker Compose, Postgres, Redis, Traefik, and Docker-based app provisioning.
 
+Traefik reads worker-generated route config from a shared volume. The API and worker remain trusted control-plane services with Docker socket access; user workload containers do not receive the Docker socket.
+
 ## Before You Deploy
 
 Quiz yourself:
@@ -67,20 +69,20 @@ api.apps.yourdomain.com -> VPS public IP
 Build the template image and app services:
 
 ```bash
-docker compose -f docker-compose.prod.yml --profile templates build
+docker compose --env-file .env.production -f docker-compose.prod.yml --profile templates build
 ```
 
 Start the platform:
 
 ```bash
-docker compose -f docker-compose.prod.yml up -d
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d
 ```
 
 Run migrations and seed the first template:
 
 ```bash
-docker compose -f docker-compose.prod.yml exec api alembic upgrade head
-docker compose -f docker-compose.prod.yml exec api python -m app.seed
+docker compose --env-file .env.production -f docker-compose.prod.yml exec api alembic upgrade head
+docker compose --env-file .env.production -f docker-compose.prod.yml exec api python -m app.seed
 ```
 
 ## Firewall Checklist
@@ -115,13 +117,13 @@ mkdir -p backups
 Create a Postgres backup:
 
 ```bash
-docker compose -f docker-compose.prod.yml exec -T postgres pg_dump -U provisioner provisioner > backups/provisioner-$(date +%Y%m%d-%H%M%S).sql
+docker compose --env-file .env.production -f docker-compose.prod.yml exec -T postgres pg_dump -U provisioner provisioner > backups/provisioner-$(date +%Y%m%d-%H%M%S).sql
 ```
 
 Restore a backup:
 
 ```bash
-docker compose -f docker-compose.prod.yml exec -T postgres psql -U provisioner provisioner < backups/YOUR_BACKUP.sql
+docker compose --env-file .env.production -f docker-compose.prod.yml exec -T postgres psql -U provisioner provisioner < backups/YOUR_BACKUP.sql
 ```
 
 Test restore on a throwaway environment before trusting backups.
@@ -131,16 +133,16 @@ Test restore on a throwaway environment before trusting backups.
 Pull or copy the new code, then:
 
 ```bash
-docker compose -f docker-compose.prod.yml build api worker
-docker compose -f docker-compose.prod.yml up -d api worker
-docker compose -f docker-compose.prod.yml exec api alembic upgrade head
+docker compose --env-file .env.production -f docker-compose.prod.yml build api worker
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d api worker
+docker compose --env-file .env.production -f docker-compose.prod.yml exec api alembic upgrade head
 ```
 
 Verify:
 
 ```bash
-docker compose -f docker-compose.prod.yml ps
-docker compose -f docker-compose.prod.yml logs --tail=100 api worker traefik
+docker compose --env-file .env.production -f docker-compose.prod.yml ps
+docker compose --env-file .env.production -f docker-compose.prod.yml logs --tail=100 api worker traefik
 ```
 
 ## Rollback
@@ -162,4 +164,3 @@ Practice these before inviting friends:
 - Let one resource expire and verify cleanup.
 - Restart the VPS and verify Postgres state remains.
 - Confirm Redis/Postgres are not reachable from the public internet.
-

@@ -7,13 +7,8 @@ services:
     depends_on:
       - postgres
       - redis
-    labels:
-      traefik.enable: "true"
-      traefik.docker.network: tiny-provisioner-edge
-      traefik.http.routers.tiny-provisioner-api.rule: Host(`api.${APP_BASE_DOMAIN}`)
-      traefik.http.routers.tiny-provisioner-api.entrypoints: websecure
-      traefik.http.routers.tiny-provisioner-api.tls.certresolver: letsencrypt
-      traefik.http.services.tiny-provisioner-api.loadbalancer.server.port: "8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - internal
       - edge
@@ -22,12 +17,16 @@ services:
     build: .
     command: python -m app.worker
     env_file: .env.production
+    environment:
+      TRAEFIK_DYNAMIC_CONFIG_PATH: /var/lib/tiny-provisioner/traefik/apps.yml
+      TRAEFIK_CERT_RESOLVER: letsencrypt
     restart: unless-stopped
     depends_on:
       - postgres
       - redis
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - traefik-dynamic:/var/lib/tiny-provisioner/traefik
     networks:
       - internal
 
@@ -53,12 +52,11 @@ services:
       - internal
 
   traefik:
-    image: traefik:v3.1
+    image: traefik:v3.5
     restart: unless-stopped
     command:
-      - --providers.docker=true
-      - --providers.docker.exposedbydefault=false
-      - --providers.docker.network=tiny-provisioner-edge
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
       - --entrypoints.web.address=:80
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
@@ -71,8 +69,8 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - letsencrypt:/letsencrypt
+      - traefik-dynamic:/etc/traefik/dynamic:ro
     networks:
       - edge
       - provisioned-apps
@@ -87,6 +85,7 @@ volumes:
   postgres-data:
   redis-data:
   letsencrypt:
+  traefik-dynamic:
 
 networks:
   internal:
@@ -95,4 +94,3 @@ networks:
     name: tiny-provisioner-edge
   provisioned-apps:
     name: tiny-provisioner-apps
-

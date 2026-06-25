@@ -84,6 +84,23 @@ docker compose -f docker-compose.yml -f docker-compose.docker.yml exec api pytho
 docker compose -f docker-compose.yml -f docker-compose.docker.yml exec api python scripts/smoke_test.py --base-url http://127.0.0.1:8000
 ```
 
+To verify Traefik routing and pause before cleanup:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.docker.yml exec api python scripts/smoke_test.py --base-url http://127.0.0.1:8000 --check-workload-url --workload-proxy-url http://host.docker.internal --pause-before-delete
+```
+
+Why `--workload-proxy-url` is needed: this command runs from inside the API container. That container may not be able to resolve `*.apps.localhost`. The smoke test instead calls Traefik through `host.docker.internal` and sends the provisioned app hostname in the HTTP `Host` header. Traefik routes based on that header.
+
+While it is paused, run these in another terminal:
+
+```powershell
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+docker network inspect tiny-provisioner-apps
+```
+
+Then press Enter in the smoke-test terminal to delete the resource.
+
 Then inspect Docker:
 
 ```powershell
@@ -100,6 +117,8 @@ You should see:
 - The provisioned container attached to `tiny-provisioner-apps`.
 - No published random host port for the provisioned container.
 
+In Docker backend mode, the API and worker are trusted control-plane services and receive the Docker socket. The worker uses it to create containers and write Traefik route config. The API uses it to read real container logs. Traefik reads only a dynamic config file and joins the provisioned-app network. User-created workload containers must never receive the Docker socket.
+
 ## Manual Browser Check
 
 For local Docker backend testing, `apps.localhost` should resolve to localhost on most modern systems.
@@ -111,6 +130,24 @@ http://smoke-demo-xxxx.apps.localhost
 ```
 
 If the browser cannot resolve it, add a temporary hosts entry for the exact hostname or test with curl using a Host header.
+
+Host-header test from Windows:
+
+```powershell
+curl.exe -H "Host: smoke-demo-xxxx.apps.localhost" http://127.0.0.1
+```
+
+## Traefik File Provider Errors
+
+If the provisioned container is running but the workload URL returns `404`, Traefik probably does not have a route for that hostname yet. Check the worker route file and Traefik logs:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.docker.yml exec worker sh -c "cat /var/lib/tiny-provisioner/traefik/apps.yml"
+docker compose -f docker-compose.yml -f docker-compose.docker.yml exec traefik traefik healthcheck
+docker compose -f docker-compose.yml -f docker-compose.docker.yml logs --tail=100 worker traefik
+```
+
+If the route file is empty, the worker did not finish provisioning or did not mount the `traefik-dynamic` volume. If the route file has the hostname but Traefik still returns `404`, restart Traefik so it reloads the watched file provider.
 
 ## Failure Triage
 
@@ -143,4 +180,3 @@ Docker backend cannot create containers:
 - Confirm Docker is running.
 - Confirm the worker has `/var/run/docker.sock` mounted.
 - Confirm `tiny-python-http-app:local` exists with `docker images`.
-

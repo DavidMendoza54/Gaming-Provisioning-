@@ -1,10 +1,9 @@
 services:
   traefik:
-    image: traefik:v3.1
+    image: traefik:v3.5
     command:
-      - --providers.docker=true
-      - --providers.docker.exposedbydefault=false
-      - --providers.docker.network=tiny-provisioner-apps
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
       - --api.dashboard=true
@@ -14,22 +13,34 @@ services:
       - "443:443"
       - "8080:8080"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-dynamic:/etc/traefik/dynamic:ro
     networks:
       - provisioned-apps
 
-  worker:
+  api:
     environment:
       PROVISIONER_BACKEND: docker
       DOCKER_NETWORK_NAME: tiny-provisioner-apps
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
+  worker:
+    environment:
+      PROVISIONER_BACKEND: docker
+      DOCKER_NETWORK_NAME: tiny-provisioner-apps
+      TRAEFIK_DYNAMIC_CONFIG_PATH: /var/lib/tiny-provisioner/traefik/apps.yml
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - traefik-dynamic:/var/lib/tiny-provisioner/traefik
+
   tiny-python-http-app:
     build: ./provisioned_templates/tiny-python-http-app
     image: tiny-python-http-app:local
     profiles:
       - templates
+
+volumes:
+  traefik-dynamic:
 
 networks:
   provisioned-apps:

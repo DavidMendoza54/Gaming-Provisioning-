@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     app_public_scheme: str = "http"
     provisioner_backend: str = "fake"
     docker_network_name: str = "tiny-provisioner-apps"
+    traefik_dynamic_config_path: str | None = None
+    traefik_cert_resolver: str | None = None
     max_active_resources_per_user: int = 3
     default_resource_ttl_hours: int = 24
     database_url: str = "postgresql+psycopg://provisioner:provisioner@localhost:5432/provisioner"

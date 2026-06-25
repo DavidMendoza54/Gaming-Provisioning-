@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from time import sleep
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
@@ -277,12 +278,22 @@ async def run_once() -> int:
         return queued_cleanup + processed
 
 
-def main() -> None:
+def run_forever(*, idle_sleep_seconds: int = 3) -> None:
     print("TinyProvisioner worker started")
     while True:
-        processed = asyncio.run(run_once())
+        try:
+            processed = asyncio.run(run_once())
+        except SQLAlchemyError as exc:
+            print(f"Worker database not ready, retrying: {exc}", flush=True)
+            sleep(idle_sleep_seconds)
+            continue
+
         if processed == 0:
-            sleep(3)
+            sleep(idle_sleep_seconds)
+
+
+def main() -> None:
+    run_forever()
 
 
 if __name__ == "__main__":

@@ -28,6 +28,8 @@ Use this before deploying or inviting friends.
 - Traefik dashboard is not public in production.
 - User containers join a private app network.
 - User containers do not receive `/var/run/docker.sock`.
+- Only trusted control-plane services, such as `api` and `worker`, receive `/var/run/docker.sock`.
+- Traefik does not receive `/var/run/docker.sock`; it reads worker-generated route config.
 
 ## Operations
 
@@ -35,4 +37,3 @@ Use this before deploying or inviting friends.
 - Restore has been tested somewhere safe.
 - Expired-resource cleanup has been tested.
 - Logs do not contain bearer tokens or passwords.
-

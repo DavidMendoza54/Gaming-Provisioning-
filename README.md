@@ -98,7 +98,11 @@ docker compose -f docker-compose.yml -f docker-compose.docker.yml --profile temp
 docker compose -f docker-compose.yml -f docker-compose.docker.yml up
 ```
 
-In this mode, Traefik listens on host ports `80` and `443`, watches Docker labels, and joins the `tiny-provisioner-apps` network. The worker receives the Docker socket so it can create containers; user containers do not receive the Docker socket.
+In this mode, Traefik listens on host ports `80` and `443`, watches a dynamic route file, and joins the `tiny-provisioner-apps` network. The worker receives the Docker socket so it can create containers and write Traefik routes; user containers do not receive the Docker socket.
+
+Traefik does not inspect Docker directly in this project. The worker writes route entries like `demo.apps.localhost -> http://tp-demo:8000` into a shared Traefik dynamic config file.
+
+The API also receives the Docker socket in Docker backend mode so `/resources/{id}/logs` can read real container logs. Treat the API and worker as trusted control-plane services; never pass the Docker socket to user-created containers.
 
 For local testing, `APP_BASE_DOMAIN=apps.localhost` and `APP_PUBLIC_SCHEME=http` are enough for routes like `demo.apps.localhost`. On a VPS, point wildcard DNS such as `*.apps.example.com` at the server IP and switch `APP_PUBLIC_SCHEME=https` after TLS is configured.
 

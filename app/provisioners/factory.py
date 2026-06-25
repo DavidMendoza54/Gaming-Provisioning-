@@ -13,5 +13,7 @@ def make_provisioner() -> Provisioner:
             base_domain=settings.app_base_domain,
             public_scheme=settings.app_public_scheme,
             network_name=settings.docker_network_name,
+            traefik_dynamic_config_path=settings.traefik_dynamic_config_path,
+            traefik_cert_resolver=settings.traefik_cert_resolver,
         )
     raise RuntimeError(f"Unknown provisioner backend: {settings.provisioner_backend}")
