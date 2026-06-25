@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 
 def test_docker_compose_override_defines_traefik_proxy() -> None:
@@ -19,3 +20,24 @@ def test_worker_gets_docker_socket_only_in_docker_override() -> None:
 
     assert "/var/run/docker.sock" not in default_compose
     assert "/var/run/docker.sock:/var/run/docker.sock" in docker_override
+
+
+def test_production_compose_does_not_publish_datastores_or_api_directly() -> None:
+    compose = Path("docker-compose.prod.yml").read_text()
+
+    assert '"5432:5432"' not in compose
+    assert '"6379:6379"' not in compose
+    assert '"8000:8000"' not in compose
+    assert '"8080:8080"' not in compose
+    assert re.search(r"ports:\n\s+- \"80:80\"\n\s+- \"443:443\"", compose)
+    assert "--api.insecure=true" not in compose
+    assert "internal: true" in compose
+
+
+def test_production_env_example_uses_https_and_docker_backend() -> None:
+    env = Path(".env.production.example").read_text()
+
+    assert "APP_ENV=production" in env
+    assert "APP_PUBLIC_SCHEME=https" in env
+    assert "PROVISIONER_BACKEND=docker" in env
+    assert "POSTGRES_PASSWORD=change-this-long-random-password" in env

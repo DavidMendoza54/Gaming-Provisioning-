@@ -108,6 +108,6 @@ The quota protects host capacity and cost. The expiration time makes forgotten r
 
 ## Next Lessons
 
-- Add Traefik routing for per-resource hostnames.
-- Add production TLS certificate handling.
+- Follow the VPS deployment runbook in `docs/VPS_RUNBOOK.md`.
+- Review the security checklist in `docs/SECURITY_CHECKLIST.md`.
 - Add host security hardening.
