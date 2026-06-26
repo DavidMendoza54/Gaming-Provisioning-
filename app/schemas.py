@@ -92,3 +92,9 @@ class ResourceLogsRead(BaseModel):
     resource_id: int
     external_id: str
     logs: str
+
+
+class SystemCheckRead(BaseModel):
+    name: str
+    status: str
+    detail: str

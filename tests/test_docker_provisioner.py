@@ -285,3 +285,12 @@ def test_docker_lifecycle_methods_call_container_operations() -> None:
     assert container.stop_timeout == 10
     assert container.started is True
     assert logs == "last 25 log lines"
+
+
+def test_docker_logs_are_safe_when_container_is_already_gone() -> None:
+    client = FakeDockerClient()
+    provisioner = make_docker_provisioner(client)
+
+    logs = asyncio.run(provisioner.logs(external_id="missing-container"))
+
+    assert logs == "Container logs are unavailable because the container no longer exists."

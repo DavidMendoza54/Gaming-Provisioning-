@@ -1,125 +1,219 @@
 # TinyProvisioner
 
-TinyProvisioner is a learning-first compute provisioning service. The first version models a real provider's shape without the dangerous parts: a FastAPI control plane stores desired state, a worker processes provisioning jobs, and a fake provisioner lets us practice lifecycle logic before touching Docker.
+TinyProvisioner is a learning-first compute provisioning control plane built with Python, FastAPI, Docker, Postgres, Redis, and Traefik. It accepts authenticated resource requests, records desired state, queues lifecycle work, provisions Docker-backed workloads, routes traffic through a reverse proxy, and exposes system health checks for debugging.
 
-## Current Slice
+This project is intentionally small, but it models the same core ideas behind platforms such as game server hosts, VPS providers, and platform-as-a-service tools: separate the request path from the infrastructure work, keep state in a database, and make background workers responsible for slow provisioning actions.
 
-- FastAPI app skeleton.
-- PostgreSQL data model for users, templates, resources, jobs, and events.
-- Alembic migration for the first schema.
-- Database-backed worker loop.
-- Fake provisioner for safe practice.
-- Register/login flow with hashed passwords and bearer tokens.
-- Fake provisioner by default, with a Docker provisioner ready behind `PROVISIONER_BACKEND=docker`.
-- Resource quotas and default expiration for cost/capacity safety.
-- Local Docker Compose for API, worker, Postgres, and Redis.
-- Tiny Python HTTP app template for the first real Docker milestone.
+## Why This Project Exists
 
-## Learning Checkpoint
+I built this to practice DevOps, networking, and security fundamentals in a concrete way:
 
-Before changing this code, answer these out loud:
+- Control plane vs data plane separation
+- Authenticated API design
+- Resource lifecycle modeling
+- Background jobs and events
+- Docker provisioning
+- Private container networking
+- Reverse proxy routing with Traefik
+- Postgres-backed state
+- Redis as stack infrastructure for future queue/cache work
+- Health checks and operational debugging
+- Local deployment with Docker Compose
+- Test-driven safety around lifecycle behavior
 
-- What is the control plane responsible for?
-- What is the data plane responsible for?
-- Why does provisioning run in a worker?
-- What should happen if the worker crashes halfway through a job?
+## Screenshot
 
-For a structured study path, start with:
+![TinyProvisioner control panel](docs/assets/control-panel-system-status.png)
 
-- [Study Guide](docs/STUDY_GUIDE.md)
-- [Guided Code Walkthrough](docs/CODE_WALKTHROUGH.md)
-- [Glossary](docs/GLOSSARY.md)
-- [Flashcards And Labs](docs/FLASHCARDS_AND_LABS.md)
+## Architecture
 
-## Local Setup
+```mermaid
+flowchart LR
+    Browser["Browser / Control Panel"] --> API["FastAPI API"]
+    API --> DB["Postgres\nusers, resources, jobs, events"]
+    API --> Redis["Redis\nfuture queue/cache helper"]
+    Worker["Worker"] --> DB
+    Worker --> Docker["Docker Engine"]
+    Worker --> TraefikConfig["Traefik dynamic config"]
+    Docker --> App["Provisioned app container"]
+    Traefik["Traefik reverse proxy"] --> App
+    Browser --> Traefik
+    TraefikConfig --> Traefik
+```
 
-Copy the environment file:
+## Request Flow
+
+```text
+Browser
+  -> API accepts an authenticated request
+  -> Database stores a resource and queued job
+  -> Worker finds the queued job
+  -> Docker creates or changes the container
+  -> Worker updates the database and route config
+  -> Traefik routes the hostname to the container
+  -> Browser opens the provisioned app URL
+```
+
+## Current Features
+
+- Browser control panel at `http://127.0.0.1:8000/`
+- Register/login with hashed passwords and bearer tokens
+- Template-backed resource creation
+- Resource lifecycle states: waiting, provisioning, running, stopping, stopped, starting, deleting, deleted, failed
+- Database-backed jobs and events
+- Docker-backed provisioning mode
+- Tiny Python HTTP app as the first provisioned workload
+- Traefik file-provider routing for provisioned apps
+- Container hardening basics: no Docker socket in user containers, dropped capabilities, no-new-privileges, read-only filesystem, memory and CPU limits
+- Resource quota and TTL cleanup guardrails
+- Workload logs endpoint
+- System Status panel for API, database, Redis, Docker, worker, and Traefik
+- Test suite covering auth, lifecycle behavior, Docker provisioning, cleanup, compose config, and UI serving
+
+## Tech Stack
+
+| Area | Tooling |
+| --- | --- |
+| API | Python, FastAPI, Pydantic |
+| Database | Postgres, SQLAlchemy, Alembic |
+| Worker | Python worker loop with database-backed jobs |
+| Provisioning | Docker Engine |
+| Routing | Traefik reverse proxy |
+| Cache/queue foundation | Redis |
+| Local runtime | Docker Compose |
+| Testing | Pytest, Ruff |
+
+## Local Quickstart
+
+Copy the example environment:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Start the local services with the safe fake provisioner:
+Start the safe local stack with the fake provisioner:
 
 ```powershell
 docker compose up --build
 ```
 
-In another terminal, run migrations and seed the first template:
+Run migrations and seed the first template:
 
 ```powershell
 docker compose exec api alembic upgrade head
 docker compose exec api python -m app.seed
 ```
 
-Open the API docs:
+Open the control panel:
 
 ```text
-http://localhost:8000/docs
+http://127.0.0.1:8000/
 ```
 
-## First Manual Flow
+## Docker Provisioning Mode
 
-1. `GET /health` should return `ok`.
-2. `POST /auth/register` creates a user and returns a bearer token.
-3. Use `Authorization: Bearer <token>` for protected endpoints.
-4. `GET /templates` should show the tiny Python HTTP app template.
-5. `POST /resources` with `template_id` creates a pending resource and queued job.
-6. The worker processes the job with the fake provisioner.
-7. `GET /resources` shows the resource as running with a fake URL.
-8. `GET /resources/{id}/events` shows lifecycle events.
-9. `POST /resources/{id}/stop` queues a stop job.
-10. `POST /resources/{id}/start` queues a start job for a stopped resource.
-11. `POST /resources/{id}/restart` queues a restart job for a running resource.
-12. `DELETE /resources/{id}` moves through `deleting` before `deleted`.
-13. `GET /resources/{id}/logs` returns workload logs once a resource has an external ID.
-
-## Provisioner Backends
-
-The default backend is safe:
-
-```text
-PROVISIONER_BACKEND=fake
-```
-
-The Docker backend creates containers on a private Docker bridge network and does not publish workload ports directly to the host:
-
-```text
-PROVISIONER_BACKEND=docker
-DOCKER_NETWORK_NAME=tiny-provisioner-apps
-```
-
-The Docker backend applies CPU/memory limits, labels containers for ownership/debugging, and adds Traefik labels for later hostname routing.
-
-To try the Docker backend on a machine with Docker installed:
+Build the app and the tiny workload image:
 
 ```powershell
 docker compose -f docker-compose.yml -f docker-compose.docker.yml --profile templates build
-docker compose -f docker-compose.yml -f docker-compose.docker.yml up
 ```
 
-In this mode, Traefik listens on host ports `80` and `443`, watches a dynamic route file, and joins the `tiny-provisioner-apps` network. The worker receives the Docker socket so it can create containers and write Traefik routes; user containers do not receive the Docker socket.
+Start the Docker-backed stack:
 
-Traefik does not inspect Docker directly in this project. The worker writes route entries like `demo.apps.localhost -> http://tp-demo:8000` into a shared Traefik dynamic config file.
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.docker.yml up -d
+```
 
-The API also receives the Docker socket in Docker backend mode so `/resources/{id}/logs` can read real container logs. Treat the API and worker as trusted control-plane services; never pass the Docker socket to user-created containers.
+Run migrations and seed data:
 
-For local testing, `APP_BASE_DOMAIN=apps.localhost` and `APP_PUBLIC_SCHEME=http` are enough for routes like `demo.apps.localhost`. On a VPS, point wildcard DNS such as `*.apps.example.com` at the server IP and switch `APP_PUBLIC_SCHEME=https` after TLS is configured.
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.docker.yml exec api alembic upgrade head
+docker compose -f docker-compose.yml -f docker-compose.docker.yml exec api python -m app.seed
+```
 
-## Guardrails
+Run the smoke test:
 
-The MVP has two basic safety controls:
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.docker.yml exec api python scripts/smoke_test.py --base-url http://127.0.0.1:8000 --check-workload-url --workload-proxy-url http://host.docker.internal
+```
+
+## Learning Guide
+
+This repo is meant to be studied, not just run. Start here:
+
+- [Study Guide](docs/STUDY_GUIDE.md)
+- [Guided Code Walkthrough](docs/CODE_WALKTHROUGH.md)
+- [Glossary](docs/GLOSSARY.md)
+- [Flashcards And Labs](docs/FLASHCARDS_AND_LABS.md)
+- [Local Runtime Validation](docs/LOCAL_RUNTIME_VALIDATION.md)
+- [Security Checklist](docs/SECURITY_CHECKLIST.md)
+- [VPS Runbook](docs/VPS_RUNBOOK.md)
+
+## What I Learned
+
+- The API should stay fast and queue slow infrastructure work.
+- The worker owns provisioning because Docker actions can take time, fail, or need retries.
+- The database is the control plane memory: it records desired state, actual state, jobs, events, URLs, external IDs, and audit history.
+- A deleted workload and a deleted database row are not the same thing. The container can be removed while the database keeps a historical record.
+- Reverse proxies let many workloads share clean hostnames without publishing every container port directly to the host.
+- Health checks are not just nice UI. They help identify whether a stuck resource is an API, worker, Docker, database, Redis, or proxy problem.
+- Security boundaries matter. User-created containers should not receive the Docker socket or unnecessary Linux capabilities.
+
+## Known Limitations
+
+This is a learning project and not production-ready yet.
+
+- No payment, billing, or customer account management
+- No multi-host scheduler
+- No real Redis-backed queue yet
+- No advanced RBAC beyond basic user ownership
+- No full TLS automation in local mode
+- No persistent per-workload volumes
+- No image allowlist enforcement beyond seeded templates
+- No distributed locking for multiple workers
+- No production observability stack such as Prometheus, Grafana, or structured log shipping
+- Docker socket access still makes the API and worker highly trusted services
+
+## Security Notes
+
+- `.env` is ignored by Git and should not be committed.
+- `.env.example` contains safe local defaults only.
+- User containers do not receive the Docker socket.
+- Workloads run on a private Docker bridge network.
+- Workload ports are not directly published to the host.
+- The Docker backend applies basic container restrictions.
+- The API and worker are trusted control-plane services because they can access Docker.
+
+## Test And Quality Commands
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe -m ruff check .
+```
+
+Current local verification:
 
 ```text
-MAX_ACTIVE_RESOURCES_PER_USER=3
-DEFAULT_RESOURCE_TTL_HOURS=24
+39 passed
+All checks passed
 ```
 
-The quota protects host capacity and cost. The expiration time makes forgotten resources eligible for cleanup. The worker checks for expired resources before processing queued jobs and queues an idempotent delete job.
+## Resume Bullets
 
-## Next Lessons
+Long version:
 
-- Run local runtime validation in `docs/LOCAL_RUNTIME_VALIDATION.md`.
-- Follow the VPS deployment runbook in `docs/VPS_RUNBOOK.md`.
-- Review the security checklist in `docs/SECURITY_CHECKLIST.md`.
-- Add host security hardening.
+> Built a Python/FastAPI compute provisioning control plane that accepts authenticated resource requests, queues lifecycle jobs, provisions Docker workloads, routes traffic through Traefik, stores state in Postgres, and exposes health/debug status for API, worker, Docker, Redis, and proxy services.
+
+Short version:
+
+> Built a Docker-backed compute provisioning platform with FastAPI, Postgres, Traefik, Redis, background workers, lifecycle jobs, and system health checks.
+
+## Next Improvements
+
+- Move job execution to Redis/RQ or another real queue backend.
+- Add worker heartbeat tracking instead of inferring worker status from Docker.
+- Add container image allowlists and stronger template validation.
+- Add structured JSON logs and metrics.
+- Add TLS automation for VPS deployment.
+- Add per-resource volume cleanup and storage quotas.
+- Add GitHub Actions for test automation.

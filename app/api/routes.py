@@ -12,6 +12,7 @@ from app.schemas import (
     ResourceCreate,
     ResourceLogsRead,
     ResourceRead,
+    SystemCheckRead,
     TemplateRead,
     TokenResponse,
     UserRead,
@@ -27,6 +28,7 @@ from app.services.resources import (
     queue_start_resource,
     queue_stop_resource,
 )
+from app.services.system_status import collect_system_status
 
 router = APIRouter()
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -56,6 +58,14 @@ def get_current_user(
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.get("/system/status", response_model=list[SystemCheckRead])
+def system_status(
+    session: Session = Depends(get_session),
+    _user: User = Depends(get_current_user),
+) -> list[dict[str, str]]:
+    return collect_system_status(session)
 
 
 @router.post("/auth/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)

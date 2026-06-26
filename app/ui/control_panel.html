@@ -172,6 +172,14 @@
         background: var(--ok);
       }
 
+      .dot.warning {
+        background: var(--warning);
+      }
+
+      .dot.error {
+        background: var(--danger);
+      }
+
       main {
         display: grid;
         grid-template-columns: minmax(280px, 340px) 1fr minmax(300px, 420px);
@@ -353,6 +361,36 @@
         font-weight: 700;
       }
 
+      .system-status-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .system-check {
+        display: grid;
+        grid-template-columns: 14px 1fr auto;
+        align-items: start;
+        gap: 8px;
+        min-height: 52px;
+        border-bottom: 1px solid var(--line);
+        padding: 8px 0;
+      }
+
+      .system-check:last-child {
+        border-bottom: 0;
+      }
+
+      .system-check strong {
+        display: block;
+        font-size: 13px;
+      }
+
+      .system-check p {
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
       .learning {
         border: 1px solid #c7d9df;
         border-radius: 6px;
@@ -456,6 +494,21 @@
 
         <section>
           <div class="panel-head">
+            <h2>System Status</h2>
+            <button id="status-refresh-button">Check</button>
+          </div>
+          <div class="panel-body stack">
+            <div id="system-status-list" class="system-status-list">
+              <p class="muted">Sign in to check the stack.</p>
+            </div>
+            <p id="system-status-lesson" class="flashcard">
+              Flashcard: Which service creates containers after the API queues a request?
+            </p>
+          </div>
+        </section>
+
+        <section>
+          <div class="panel-head">
             <h2>Resources</h2>
             <div class="row" style="flex: 0 1 auto">
               <span id="sync-status" class="inline-status">Idle</span>
@@ -537,6 +590,7 @@
         user: JSON.parse(localStorage.getItem("tinyProvisionerUser") || "null"),
         templates: [],
         resources: [],
+        systemChecks: [],
         latestEvents: [],
         selectedId: Number(localStorage.getItem("tinyProvisionerSelectedId") || 0) || null,
         pendingAction: null,
@@ -616,6 +670,9 @@
         loginButton: document.querySelector("#login-button"),
         registerButton: document.querySelector("#register-button"),
         authMessage: document.querySelector("#auth-message"),
+        statusRefreshButton: document.querySelector("#status-refresh-button"),
+        systemStatusList: document.querySelector("#system-status-list"),
+        systemStatusLesson: document.querySelector("#system-status-lesson"),
         refreshButton: document.querySelector("#refresh-button"),
         syncStatus: document.querySelector("#sync-status"),
         templateSelect: document.querySelector("#template-select"),
@@ -655,6 +712,9 @@
         if (message.includes("Failed to fetch")) {
           return "The API is not reachable. Check that the stack is running.";
         }
+        if (message.includes("Internal Server Error")) {
+          return "The API hit an internal error. Check the API logs for the backend stack trace.";
+        }
         if (message.includes("Email is already registered")) {
           return "That email already exists. Try Log in instead.";
         }
@@ -688,7 +748,14 @@
         }
         const response = await fetch(path, { ...options, headers });
         const text = await response.text();
-        const data = text ? JSON.parse(text) : {};
+        let data = {};
+        if (text) {
+          try {
+            data = JSON.parse(text);
+          } catch {
+            data = { detail: text };
+          }
+        }
         if (!response.ok) {
           throw new Error(data.detail || `${response.status} ${response.statusText}`);
         }
@@ -707,11 +774,13 @@
         state.token = null;
         state.user = null;
         state.resources = [];
+        state.systemChecks = [];
         state.selectedId = null;
         localStorage.removeItem("tinyProvisionerToken");
         localStorage.removeItem("tinyProvisionerUser");
         localStorage.removeItem("tinyProvisionerSelectedId");
         renderSession();
+        renderSystemStatus();
         renderResources();
         renderDetail();
       }
@@ -724,8 +793,59 @@
         elements.registerButton.disabled = isWorking;
         elements.createButton.disabled = !state.token || isWorking;
         elements.refreshButton.disabled = !state.token || isWorking;
+        elements.statusRefreshButton.disabled = !state.token || isWorking;
         elements.createButton.textContent = state.pendingAction === "Creating" ? "Creating..." : "Create";
         elements.refreshButton.textContent = state.pendingAction === "Refreshing" ? "Refreshing..." : "Refresh";
+      }
+
+      function renderSystemStatus() {
+        elements.systemStatusList.innerHTML = "";
+        if (!state.token) {
+          const empty = document.createElement("p");
+          empty.className = "muted";
+          empty.textContent = "Sign in to check the stack.";
+          elements.systemStatusList.append(empty);
+          elements.systemStatusLesson.textContent =
+            "Flashcard: Why should stack health require authentication?";
+          return;
+        }
+
+        if (!state.systemChecks.length) {
+          const empty = document.createElement("p");
+          empty.className = "muted";
+          empty.textContent = "No status checks yet.";
+          elements.systemStatusList.append(empty);
+          elements.systemStatusLesson.textContent =
+            "Flashcard: Which service creates containers after the API queues a request?";
+          return;
+        }
+
+        for (const check of state.systemChecks) {
+          const item = document.createElement("div");
+          item.className = "system-check";
+          const dotClass = check.status === "ok" ? "ok" : check.status === "warning" ? "warning" : "error";
+          const label =
+            check.status === "ok" ? "Running" : check.status === "warning" ? "Needs attention" : "Unavailable";
+          const dot = document.createElement("span");
+          dot.className = `dot ${dotClass}`;
+          dot.setAttribute("aria-hidden", "true");
+          const copy = document.createElement("div");
+          const name = document.createElement("strong");
+          name.textContent = check.name;
+          const detail = document.createElement("p");
+          detail.textContent = check.detail;
+          const status = document.createElement("span");
+          status.className = "badge";
+          status.textContent = label;
+          copy.append(name, detail);
+          item.append(dot, copy, status);
+          elements.systemStatusList.append(item);
+        }
+
+        const failing = state.systemChecks.find((check) => check.status !== "ok");
+        elements.systemStatusLesson.textContent = failing
+          ? `Flashcard: If ${failing.name} is unhealthy, what part of provisioning would break?`
+          : "Flashcard: If everything is healthy, where would you look next when one resource is stuck?";
       }
 
       function stateBadgeClass(resource) {
@@ -850,6 +970,16 @@
         }
       }
 
+      async function loadSystemStatus() {
+        if (!state.token) {
+          state.systemChecks = [];
+          renderSystemStatus();
+          return;
+        }
+        state.systemChecks = await api("/system/status");
+        renderSystemStatus();
+      }
+
       async function login(register = false) {
         setMessage(elements.authMessage, "");
         setPendingAction(register ? "Registering" : "Logging in");
@@ -912,6 +1042,7 @@
 
       async function loadAll() {
         await loadTemplates();
+        await loadSystemStatus();
         await loadResources();
         await loadSelectedDetails();
       }
@@ -922,6 +1053,17 @@
           await loadAll();
         } catch (error) {
           setMessage(elements.resourceMessage, friendlyError(error));
+        } finally {
+          setPendingAction(null);
+        }
+      }
+
+      async function refreshSystemStatus() {
+        setPendingAction("Checking");
+        try {
+          await loadSystemStatus();
+        } catch (error) {
+          elements.systemStatusLesson.textContent = friendlyError(error);
         } finally {
           setPendingAction(null);
         }
@@ -995,6 +1137,7 @@
       elements.registerButton.addEventListener("click", () => login(true));
       elements.logoutButton.addEventListener("click", clearSession);
       elements.refreshButton.addEventListener("click", refreshAll);
+      elements.statusRefreshButton.addEventListener("click", refreshSystemStatus);
       elements.createButton.addEventListener("click", createResource);
       elements.startButton.addEventListener("click", () => resourceAction("start"));
       elements.stopButton.addEventListener("click", () => resourceAction("stop"));
@@ -1002,6 +1145,7 @@
       elements.deleteButton.addEventListener("click", () => resourceAction("delete"));
 
       renderSession();
+      renderSystemStatus();
       renderResources();
       renderDetail();
       checkHealth();

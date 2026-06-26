@@ -97,7 +97,13 @@ class DockerProvisioner:
         self._refresh_traefik_routes()
 
     async def logs(self, *, external_id: str, tail: int = 100) -> str:
-        container = self.client.containers.get(external_id)
+        try:
+            container = self.client.containers.get(external_id)
+        except Exception as exc:
+            if self._is_not_found(exc):
+                return "Container logs are unavailable because the container no longer exists."
+            raise
+
         raw_logs = container.logs(tail=tail)
         if isinstance(raw_logs, bytes):
             return raw_logs.decode("utf-8", errors="replace")

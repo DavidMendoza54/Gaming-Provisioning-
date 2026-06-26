@@ -16,3 +16,5 @@ def test_control_panel_is_served_at_root() -> None:
     assert "Confirm delete" in response.text
     assert "Flashcard:" in response.text
     assert "Resource request queued." in response.text
+    assert "System Status" in response.text
+    assert "/system/status" in response.text
