@@ -18,6 +18,7 @@
         --danger: #b42318;
         --warning: #a16207;
         --ok: #15803d;
+        --info: #1d4ed8;
         --ink: #111827;
       }
 
@@ -342,6 +343,36 @@
         font-size: 13px;
       }
 
+      .message.success {
+        color: var(--ok);
+      }
+
+      .inline-status {
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .learning {
+        border: 1px solid #c7d9df;
+        border-radius: 6px;
+        background: #f2f8fa;
+        padding: 12px;
+      }
+
+      .learning h3 {
+        margin-bottom: 6px;
+      }
+
+      .flashcard {
+        margin-top: 10px;
+        border-top: 1px solid #c7d9df;
+        padding-top: 10px;
+        color: var(--info);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
       .hidden {
         display: none;
       }
@@ -426,7 +457,10 @@
         <section>
           <div class="panel-head">
             <h2>Resources</h2>
-            <button id="refresh-button">Refresh</button>
+            <div class="row" style="flex: 0 1 auto">
+              <span id="sync-status" class="inline-status">Idle</span>
+              <button id="refresh-button">Refresh</button>
+            </div>
           </div>
           <div class="panel-body stack">
             <div class="row">
@@ -478,6 +512,11 @@
                 <button id="restart-button">Restart</button>
                 <button id="delete-button" class="danger">Delete</button>
               </div>
+              <div class="learning">
+                <h3>What happened?</h3>
+                <p id="learning-summary" class="muted">Waiting for an event.</p>
+                <p id="learning-flashcard" class="flashcard">Flashcard: What service should own Docker access?</p>
+              </div>
               <div class="stack">
                 <h3>Logs</h3>
                 <pre id="logs-output" class="terminal"></pre>
@@ -498,7 +537,73 @@
         user: JSON.parse(localStorage.getItem("tinyProvisionerUser") || "null"),
         templates: [],
         resources: [],
+        latestEvents: [],
         selectedId: Number(localStorage.getItem("tinyProvisionerSelectedId") || 0) || null,
+        pendingAction: null,
+        confirmingDeleteId: null,
+      };
+
+      const stateLabels = {
+        pending: "Waiting",
+        provisioning: "Provisioning",
+        running: "Running",
+        stopping: "Stopping",
+        stopped: "Stopped",
+        starting: "Starting",
+        deleting: "Deleting",
+        deleted: "Deleted",
+        failed: "Failed",
+      };
+
+      const eventLessons = {
+        "resource.created": {
+          summary: "The API stored a resource request and queued a background job.",
+          flashcard: "Flashcard: Why should the API queue work instead of waiting for Docker?",
+        },
+        "resource.provisioning": {
+          summary: "The worker picked up the job and started creating the container.",
+          flashcard: "Flashcard: What makes the worker part of the control plane?",
+        },
+        "resource.running": {
+          summary: "The workload is running and Traefik has a route to reach it.",
+          flashcard: "Flashcard: What problem does the reverse proxy solve here?",
+        },
+        "resource.stop_queued": {
+          summary: "The API accepted the stop request and queued it for the worker.",
+          flashcard: "Flashcard: Why are lifecycle changes handled asynchronously?",
+        },
+        "resource.stopping": {
+          summary: "The worker is stopping the running container.",
+          flashcard: "Flashcard: What state should the UI show while work is in progress?",
+        },
+        "resource.stopped": {
+          summary: "The container is stopped, so the resource exists but is not serving traffic.",
+          flashcard: "Flashcard: How is stopped different from deleted?",
+        },
+        "resource.start_queued": {
+          summary: "The API accepted the start request and queued it for the worker.",
+          flashcard: "Flashcard: Why should the UI poll after queuing an action?",
+        },
+        "resource.starting": {
+          summary: "The worker is starting the container and refreshing the route file.",
+          flashcard: "Flashcard: Why can a URL briefly return 404 during route reload?",
+        },
+        "resource.delete_queued": {
+          summary: "The API accepted the delete request and queued cleanup.",
+          flashcard: "Flashcard: What should be cleaned up when a resource is deleted?",
+        },
+        "resource.deleting": {
+          summary: "The worker is removing the container and withdrawing the route.",
+          flashcard: "Flashcard: Why should delete be idempotent?",
+        },
+        "resource.deleted": {
+          summary: "Cleanup finished. The container and route are gone.",
+          flashcard: "Flashcard: Why does cleanup matter for cost and security?",
+        },
+        "resource.failed": {
+          summary: "The worker hit an error and marked the resource failed.",
+          flashcard: "Flashcard: Where would you look first: API logs, worker logs, or events?",
+        },
       };
 
       const elements = {
@@ -512,6 +617,7 @@
         registerButton: document.querySelector("#register-button"),
         authMessage: document.querySelector("#auth-message"),
         refreshButton: document.querySelector("#refresh-button"),
+        syncStatus: document.querySelector("#sync-status"),
         templateSelect: document.querySelector("#template-select"),
         resourceNameInput: document.querySelector("#resource-name-input"),
         createButton: document.querySelector("#create-button"),
@@ -531,10 +637,45 @@
         deleteButton: document.querySelector("#delete-button"),
         logsOutput: document.querySelector("#logs-output"),
         eventsList: document.querySelector("#events-list"),
+        learningSummary: document.querySelector("#learning-summary"),
+        learningFlashcard: document.querySelector("#learning-flashcard"),
       };
 
-      function setMessage(target, message) {
+      function displayState(value) {
+        return stateLabels[value] || value || "None";
+      }
+
+      function setMessage(target, message, kind = "error") {
         target.textContent = message || "";
+        target.classList.toggle("success", Boolean(message) && kind === "success");
+      }
+
+      function friendlyError(error) {
+        const message = error.message || "Something went wrong.";
+        if (message.includes("Failed to fetch")) {
+          return "The API is not reachable. Check that the stack is running.";
+        }
+        if (message.includes("Email is already registered")) {
+          return "That email already exists. Try Log in instead.";
+        }
+        if (message.includes("Invalid credentials")) {
+          return "Login failed. Check the email and password.";
+        }
+        if (message.includes("quota")) {
+          return "Quota blocked this request. Delete or stop another resource first.";
+        }
+        return message;
+      }
+
+      function setWorking(message) {
+        elements.syncStatus.textContent = message || "Idle";
+      }
+
+      function setPendingAction(action) {
+        state.pendingAction = action;
+        setWorking(action ? `${action}...` : "Idle");
+        renderSession();
+        renderDetail();
       }
 
       async function api(path, options = {}) {
@@ -578,8 +719,13 @@
       function renderSession() {
         elements.sessionEmail.textContent = state.user ? state.user.email : "Signed out";
         elements.logoutButton.classList.toggle("hidden", !state.token);
-        elements.createButton.disabled = !state.token;
-        elements.refreshButton.disabled = !state.token;
+        const isWorking = Boolean(state.pendingAction);
+        elements.loginButton.disabled = isWorking;
+        elements.registerButton.disabled = isWorking;
+        elements.createButton.disabled = !state.token || isWorking;
+        elements.refreshButton.disabled = !state.token || isWorking;
+        elements.createButton.textContent = state.pendingAction === "Creating" ? "Creating..." : "Create";
+        elements.refreshButton.textContent = state.pendingAction === "Refreshing" ? "Refreshing..." : "Refresh";
       }
 
       function stateBadgeClass(resource) {
@@ -611,7 +757,7 @@
           button.className = `resource-item ${resource.id === state.selectedId ? "active" : ""}`;
           button.innerHTML = `
             <strong>${resource.slug}</strong>
-            <span class="${stateBadgeClass(resource)}">${resource.actual_state}</span>
+            <span class="${stateBadgeClass(resource)}">${displayState(resource.actual_state)}</span>
             <span class="muted">${resource.cpu_limit} CPU / ${resource.memory_mb} MB</span>
           `;
           button.addEventListener("click", () => selectResource(resource.id));
@@ -628,7 +774,7 @@
         elements.emptyDetail.classList.toggle("hidden", Boolean(resource));
         elements.detailContent.classList.toggle("hidden", !resource);
         elements.selectedState.className = stateBadgeClass(resource);
-        elements.selectedState.textContent = resource ? resource.actual_state : "None";
+        elements.selectedState.textContent = resource ? displayState(resource.actual_state) : "None";
 
         if (!resource) {
           return;
@@ -636,16 +782,22 @@
 
         elements.detailUrl.textContent = resource.url || "None";
         elements.detailCapacity.textContent = `${resource.cpu_limit} CPU / ${resource.memory_mb} MB`;
-        elements.detailDesired.textContent = resource.desired_state;
+        elements.detailDesired.textContent = displayState(resource.desired_state);
         elements.detailCreated.textContent = new Date(resource.created_at).toLocaleString();
         elements.openLink.href = resource.url || "#";
         elements.openLink.classList.toggle("hidden", !resource.url);
 
         const busy = ["pending", "provisioning", "starting", "stopping", "deleting"].includes(resource.actual_state);
-        elements.startButton.disabled = busy || resource.actual_state === "running" || resource.actual_state === "deleted";
-        elements.stopButton.disabled = busy || resource.actual_state !== "running";
-        elements.restartButton.disabled = busy || resource.actual_state !== "running";
-        elements.deleteButton.disabled = busy || resource.actual_state === "deleted";
+        const isWorking = Boolean(state.pendingAction);
+        elements.startButton.disabled = busy || isWorking || resource.actual_state === "running" || resource.actual_state === "deleted";
+        elements.stopButton.disabled = busy || isWorking || resource.actual_state !== "running";
+        elements.restartButton.disabled = busy || isWorking || resource.actual_state !== "running";
+        elements.deleteButton.disabled = busy || isWorking || resource.actual_state === "deleted";
+        elements.startButton.textContent = state.pendingAction === "Starting" ? "Starting..." : "Start";
+        elements.stopButton.textContent = state.pendingAction === "Stopping" ? "Stopping..." : "Stop";
+        elements.restartButton.textContent = state.pendingAction === "Restarting" ? "Restarting..." : "Restart";
+        elements.deleteButton.textContent =
+          state.confirmingDeleteId === resource.id ? "Confirm delete" : state.pendingAction === "Deleting" ? "Deleting..." : "Delete";
       }
 
       function renderEvents(events) {
@@ -668,6 +820,23 @@
           `;
           elements.eventsList.append(item);
         }
+        renderLearning(events);
+      }
+
+      function renderLearning(events) {
+        const latest = events[events.length - 1];
+        if (!latest) {
+          elements.learningSummary.textContent = "No events yet. Create a resource to watch the control plane work.";
+          elements.learningFlashcard.textContent = "Flashcard: What service should own Docker access?";
+          return;
+        }
+
+        const lesson = eventLessons[latest.event_type] || {
+          summary: latest.message,
+          flashcard: "Flashcard: What changed in desired state or actual state?",
+        };
+        elements.learningSummary.textContent = lesson.summary;
+        elements.learningFlashcard.textContent = lesson.flashcard;
       }
 
       async function checkHealth() {
@@ -683,6 +852,7 @@
 
       async function login(register = false) {
         setMessage(elements.authMessage, "");
+        setPendingAction(register ? "Registering" : "Logging in");
         try {
           const payload = {
             email: elements.emailInput.value,
@@ -694,8 +864,11 @@
           });
           saveSession(response);
           await loadAll();
+          setMessage(elements.authMessage, register ? "Account created." : "Logged in.", "success");
         } catch (error) {
-          setMessage(elements.authMessage, error.message);
+          setMessage(elements.authMessage, friendlyError(error));
+        } finally {
+          setPendingAction(null);
         }
       }
 
@@ -729,10 +902,11 @@
             api(`/resources/${resource.id}/events`),
             resource.external_id ? api(`/resources/${resource.id}/logs`) : Promise.resolve({ logs: "" }),
           ]);
+          state.latestEvents = events;
           renderEvents(events);
           elements.logsOutput.textContent = logs.logs || "";
         } catch (error) {
-          elements.logsOutput.textContent = error.message;
+          elements.logsOutput.textContent = friendlyError(error);
         }
       }
 
@@ -740,6 +914,17 @@
         await loadTemplates();
         await loadResources();
         await loadSelectedDetails();
+      }
+
+      async function refreshAll() {
+        setPendingAction("Refreshing");
+        try {
+          await loadAll();
+        } catch (error) {
+          setMessage(elements.resourceMessage, friendlyError(error));
+        } finally {
+          setPendingAction(null);
+        }
       }
 
       async function selectResource(resourceId) {
@@ -752,6 +937,8 @@
 
       async function createResource() {
         setMessage(elements.resourceMessage, "");
+        state.confirmingDeleteId = null;
+        setPendingAction("Creating");
         try {
           const templateId = Number(elements.templateSelect.value);
           const name = elements.resourceNameInput.value;
@@ -762,8 +949,11 @@
           state.selectedId = resource.id;
           await loadResources();
           await loadSelectedDetails();
+          setMessage(elements.resourceMessage, "Resource request queued.", "success");
         } catch (error) {
-          setMessage(elements.resourceMessage, error.message);
+          setMessage(elements.resourceMessage, friendlyError(error));
+        } finally {
+          setPendingAction(null);
         }
       }
 
@@ -773,20 +963,38 @@
           return;
         }
         setMessage(elements.resourceMessage, "");
+        if (action === "delete" && state.confirmingDeleteId !== resource.id) {
+          state.confirmingDeleteId = resource.id;
+          setMessage(elements.resourceMessage, "Click Confirm delete to permanently remove this resource.", "error");
+          renderDetail();
+          return;
+        }
+        const actionLabel = action.charAt(0).toUpperCase() + action.slice(1);
+        const pendingLabels = {
+          start: "Starting",
+          stop: "Stopping",
+          restart: "Restarting",
+          delete: "Deleting",
+        };
+        setPendingAction(pendingLabels[action]);
         try {
           const path = action === "delete" ? `/resources/${resource.id}` : `/resources/${resource.id}/${action}`;
           await api(path, { method: action === "delete" ? "DELETE" : "POST" });
+          state.confirmingDeleteId = null;
           await loadResources();
           await loadSelectedDetails();
+          setMessage(elements.resourceMessage, `${actionLabel} request queued.`, "success");
         } catch (error) {
-          setMessage(elements.resourceMessage, error.message);
+          setMessage(elements.resourceMessage, friendlyError(error));
+        } finally {
+          setPendingAction(null);
         }
       }
 
       elements.loginButton.addEventListener("click", () => login(false));
       elements.registerButton.addEventListener("click", () => login(true));
       elements.logoutButton.addEventListener("click", clearSession);
-      elements.refreshButton.addEventListener("click", loadAll);
+      elements.refreshButton.addEventListener("click", refreshAll);
       elements.createButton.addEventListener("click", createResource);
       elements.startButton.addEventListener("click", () => resourceAction("start"));
       elements.stopButton.addEventListener("click", () => resourceAction("stop"));
@@ -799,7 +1007,7 @@
       checkHealth();
       loadTemplates().catch(() => {});
       if (state.token) {
-        loadAll().catch((error) => setMessage(elements.authMessage, error.message));
+        loadAll().catch((error) => setMessage(elements.authMessage, friendlyError(error)));
       }
       setInterval(() => {
         checkHealth();
