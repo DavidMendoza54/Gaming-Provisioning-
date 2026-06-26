@@ -141,6 +141,8 @@ docker compose -f docker-compose.yml -f docker-compose.docker.yml exec api pytho
 
 This repo is meant to be studied, not just run. Start here:
 
+- [Interview Readiness Guide](docs/INTERVIEW_GUIDE.md)
+- [Printable Word Interview Guide](docs/TinyProvisioner_Interview_Guide.docx)
 - [Study Guide](docs/STUDY_GUIDE.md)
 - [Guided Code Walkthrough](docs/CODE_WALKTHROUGH.md)
 - [Glossary](docs/GLOSSARY.md)
