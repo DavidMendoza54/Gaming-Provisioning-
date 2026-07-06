@@ -153,6 +153,7 @@ This repo is meant to be studied, not just run. Start here:
 - [Glossary](docs/GLOSSARY.md)
 - [Flashcards And Labs](docs/FLASHCARDS_AND_LABS.md)
 - [SSH Provisioning Notes](docs/SSH_PROVISIONING.md)
+- [Remote SSH Setup Runbook](docs/REMOTE_SSH_SETUP.md)
 - [Local Runtime Validation](docs/LOCAL_RUNTIME_VALIDATION.md)
 - [Security Checklist](docs/SECURITY_CHECKLIST.md)
 - [VPS Runbook](docs/VPS_RUNBOOK.md)

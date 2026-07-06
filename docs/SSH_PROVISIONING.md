@@ -132,6 +132,8 @@ Those tests use a fake Docker runner to prove command shape and safe repeat beha
 
 ## Manual Remote Install Plan
 
+For the full setup flow, use [Remote SSH Setup](REMOTE_SSH_SETUP.md).
+
 On a real VPS, install the script under the command name the worker expects:
 
 ```bash
