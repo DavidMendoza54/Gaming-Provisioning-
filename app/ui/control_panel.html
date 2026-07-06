@@ -411,6 +411,15 @@
         font-weight: 700;
       }
 
+      .learning-only {
+        display: none;
+      }
+
+      body.learning-mode .learning.learning-only,
+      body.learning-mode .flashcard.learning-only {
+        display: block;
+      }
+
       .hidden {
         display: none;
       }
@@ -465,6 +474,7 @@
         </div>
         <div class="row" style="flex: 0 1 auto">
           <div class="status"><span id="health-dot" class="dot"></span><span id="health-text">Checking</span></div>
+          <button id="learning-toggle-button" type="button" aria-pressed="false">Learning off</button>
           <button id="logout-button" class="hidden">Log out</button>
         </div>
       </header>
@@ -501,7 +511,7 @@
             <div id="system-status-list" class="system-status-list">
               <p class="muted">Sign in to check the stack.</p>
             </div>
-            <p id="system-status-lesson" class="flashcard">
+            <p id="system-status-lesson" class="flashcard learning-only">
               Flashcard: Which service creates containers after the API queues a request?
             </p>
           </div>
@@ -565,10 +575,10 @@
                 <button id="restart-button">Restart</button>
                 <button id="delete-button" class="danger">Delete</button>
               </div>
-              <div class="learning">
+              <div class="learning learning-only">
                 <h3>What happened?</h3>
                 <p id="learning-summary" class="muted">Waiting for an event.</p>
-                <p id="learning-flashcard" class="flashcard">Flashcard: What service should own Docker access?</p>
+                <p id="learning-flashcard" class="flashcard learning-only">Flashcard: What service should own Docker access?</p>
               </div>
               <div class="stack">
                 <h3>Logs</h3>
@@ -595,6 +605,7 @@
         selectedId: Number(localStorage.getItem("tinyProvisionerSelectedId") || 0) || null,
         pendingAction: null,
         confirmingDeleteId: null,
+        learningMode: localStorage.getItem("tinyProvisionerLearningMode") === "true",
       };
 
       const stateLabels = {
@@ -663,6 +674,7 @@
       const elements = {
         healthDot: document.querySelector("#health-dot"),
         healthText: document.querySelector("#health-text"),
+        learningToggleButton: document.querySelector("#learning-toggle-button"),
         logoutButton: document.querySelector("#logout-button"),
         sessionEmail: document.querySelector("#session-email"),
         emailInput: document.querySelector("#email-input"),
@@ -705,6 +717,18 @@
       function setMessage(target, message, kind = "error") {
         target.textContent = message || "";
         target.classList.toggle("success", Boolean(message) && kind === "success");
+      }
+
+      function renderLearningMode() {
+        document.body.classList.toggle("learning-mode", state.learningMode);
+        elements.learningToggleButton.textContent = state.learningMode ? "Learning on" : "Learning off";
+        elements.learningToggleButton.setAttribute("aria-pressed", String(state.learningMode));
+      }
+
+      function toggleLearningMode() {
+        state.learningMode = !state.learningMode;
+        localStorage.setItem("tinyProvisionerLearningMode", String(state.learningMode));
+        renderLearningMode();
       }
 
       function friendlyError(error) {
@@ -1135,6 +1159,7 @@
 
       elements.loginButton.addEventListener("click", () => login(false));
       elements.registerButton.addEventListener("click", () => login(true));
+      elements.learningToggleButton.addEventListener("click", toggleLearningMode);
       elements.logoutButton.addEventListener("click", clearSession);
       elements.refreshButton.addEventListener("click", refreshAll);
       elements.statusRefreshButton.addEventListener("click", refreshSystemStatus);
@@ -1144,6 +1169,7 @@
       elements.restartButton.addEventListener("click", () => resourceAction("restart"));
       elements.deleteButton.addEventListener("click", () => resourceAction("delete"));
 
+      renderLearningMode();
       renderSession();
       renderSystemStatus();
       renderResources();

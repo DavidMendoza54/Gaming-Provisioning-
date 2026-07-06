@@ -102,7 +102,8 @@ def me(user: User = Depends(get_current_user)) -> User:
 
 @router.get("/templates", response_model=list[TemplateRead])
 def list_templates(session: Session = Depends(get_session)) -> list[Template]:
-    return list(session.scalars(select(Template).where(Template.enabled.is_(True))).all())
+    statement = select(Template).where(Template.enabled.is_(True)).order_by(Template.id.asc())
+    return list(session.scalars(statement).all())
 
 
 @router.post("/resources", response_model=ResourceRead, status_code=status.HTTP_202_ACCEPTED)

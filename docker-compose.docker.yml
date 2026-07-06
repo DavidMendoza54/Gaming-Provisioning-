@@ -39,6 +39,12 @@ services:
     profiles:
       - templates
 
+  tiny-browser-game:
+    build: ./provisioned_templates/tiny-browser-game
+    image: tiny-browser-game:local
+    profiles:
+      - templates
+
 volumes:
   traefik-dynamic:
 

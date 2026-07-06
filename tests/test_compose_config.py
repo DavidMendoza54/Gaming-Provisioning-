@@ -28,6 +28,7 @@ def test_docker_backend_gives_socket_to_control_plane_only() -> None:
     assert "worker:" in docker_override
     assert "PROVISIONER_BACKEND: docker" in docker_override
     assert "tiny-python-http-app:" in docker_override
+    assert "tiny-browser-game:" in docker_override
 
 
 def test_dev_compose_api_does_not_use_reload_watcher() -> None:
@@ -55,6 +56,7 @@ def test_production_compose_does_not_publish_datastores_or_api_directly() -> Non
     assert "TRAEFIK_CERT_RESOLVER: letsencrypt" in compose
     assert "traefik-dynamic:/etc/traefik/dynamic:ro" in compose
     assert "/var/run/docker.sock:/var/run/docker.sock" in compose
+    assert "tiny-browser-game:" in compose
 
 
 def test_production_env_example_uses_https_and_docker_backend() -> None:

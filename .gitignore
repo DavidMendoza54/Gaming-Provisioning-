@@ -13,3 +13,4 @@ build/
 postgres-data/
 redis-data/
 *.log
+~$*.docx

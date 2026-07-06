@@ -11,6 +11,13 @@ class Settings(BaseSettings):
     docker_network_name: str = "tiny-provisioner-apps"
     traefik_dynamic_config_path: str | None = None
     traefik_cert_resolver: str | None = None
+    ssh_host: str = ""
+    ssh_user: str = ""
+    ssh_key_path: str = ""
+    ssh_port: int = 22
+    ssh_remote_command: str = "tiny-provisioner-remote"
+    ssh_timeout_seconds: int = 60
+    ssh_strict_host_key_checking: bool = True
     max_active_resources_per_user: int = 3
     default_resource_ttl_hours: int = 24
     database_url: str = "postgresql+psycopg://provisioner:provisioner@localhost:5432/provisioner"

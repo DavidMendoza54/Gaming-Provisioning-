@@ -1,12 +1,14 @@
 # TinyProvisioner
 
-TinyProvisioner is a learning-first compute provisioning control plane built with Python, FastAPI, Docker, Postgres, Redis, and Traefik. It accepts authenticated resource requests, records desired state, queues lifecycle work, provisions Docker-backed workloads, routes traffic through a reverse proxy, and exposes system health checks for debugging.
+TinyProvisioner is my attempt to understand what actually happens behind a "create server" button.
 
-This project is intentionally small, but it models the same core ideas behind platforms such as game server hosts, VPS providers, and platform-as-a-service tools: separate the request path from the infrastructure work, keep state in a database, and make background workers responsible for slow provisioning actions.
+The project started as a way to practice DevOps, networking, and security fundamentals in one place. A user can log in, request a small workload, and watch the system record the request, queue background work, create a Docker container, and route traffic to it through Traefik.
 
-## Why This Project Exists
+This is not production hosting software. It is a hands-on learning project that models the shape of a small compute provisioning platform: API first, state in Postgres, slow infrastructure work in a worker, containers on a private network, and operational checks to debug what is running.
 
-I built this to practice DevOps, networking, and security fundamentals in a concrete way:
+## Why I Built This
+
+I am studying DevOps and security, and I wanted a project that forced me to connect the pieces instead of learning them in isolation. TinyProvisioner gave me a reason to practice:
 
 - Control plane vs data plane separation
 - Authenticated API design
@@ -63,11 +65,14 @@ Browser
 - Database-backed jobs and events
 - Docker-backed provisioning mode
 - Tiny Python HTTP app as the first provisioned workload
+- Tiny Browser Game as a functional portfolio workload
 - Traefik file-provider routing for provisioned apps
 - Container hardening basics: no Docker socket in user containers, dropped capabilities, no-new-privileges, read-only filesystem, memory and CPU limits
 - Resource quota and TTL cleanup guardrails
 - Workload logs endpoint
 - System Status panel for API, database, Redis, Docker, worker, and Traefik
+- Learning Mode toggle for switching between a clean portfolio demo and guided study prompts
+- First SSH provisioning slice with a controlled remote Docker script
 - Test suite covering auth, lifecycle behavior, Docker provisioning, cleanup, compose config, and UI serving
 
 ## Tech Stack
@@ -147,18 +152,23 @@ This repo is meant to be studied, not just run. Start here:
 - [Guided Code Walkthrough](docs/CODE_WALKTHROUGH.md)
 - [Glossary](docs/GLOSSARY.md)
 - [Flashcards And Labs](docs/FLASHCARDS_AND_LABS.md)
+- [SSH Provisioning Notes](docs/SSH_PROVISIONING.md)
 - [Local Runtime Validation](docs/LOCAL_RUNTIME_VALIDATION.md)
 - [Security Checklist](docs/SECURITY_CHECKLIST.md)
 - [VPS Runbook](docs/VPS_RUNBOOK.md)
 
 ## What I Learned
 
-- The API should stay fast and queue slow infrastructure work.
-- The worker owns provisioning because Docker actions can take time, fail, or need retries.
-- The database is the control plane memory: it records desired state, actual state, jobs, events, URLs, external IDs, and audit history.
-- A deleted workload and a deleted database row are not the same thing. The container can be removed while the database keeps a historical record.
-- Reverse proxies let many workloads share clean hostnames without publishing every container port directly to the host.
-- Health checks are not just nice UI. They help identify whether a stuck resource is an API, worker, Docker, database, Redis, or proxy problem.
+The biggest lesson was that provisioning is not just "run a container." The hard part is tracking intent, current state, cleanup, ownership, and failure modes.
+
+Some specific things I learned while building this:
+
+- The API should stay fast. It should record the request and queue work instead of waiting on Docker.
+- The worker is where slow infrastructure actions belong because those actions can fail, retry, or take longer than an HTTP request should.
+- The database is the control plane memory. It records desired state, actual state, jobs, events, URLs, external IDs, and audit history.
+- Deleting a container and deleting a database row are different actions. The workload can be gone while the platform keeps history.
+- A reverse proxy lets many workloads share clean hostnames without publishing every container port directly to the host.
+- Health checks are not just a nice UI detail. They helped me debug whether a stuck resource was an API, worker, Docker, database, Redis, or proxy problem.
 - Security boundaries matter. User-created containers should not receive the Docker socket or unnecessary Linux capabilities.
 
 ## Known Limitations
@@ -219,3 +229,5 @@ Short version:
 - Add TLS automation for VPS deployment.
 - Add per-resource volume cleanup and storage quotas.
 - Add GitHub Actions for test automation.
+- Finish the SSH provisioner remote script for VPS-based provisioning.
+- Add true UDP game server routing for Minetest or a similar server.
