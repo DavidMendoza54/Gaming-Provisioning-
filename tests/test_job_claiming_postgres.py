@@ -4,6 +4,7 @@ from threading import Barrier
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import Base
@@ -19,19 +20,34 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-@pytest.mark.parametrize("jobs_for_resource", [1, 2])
-def test_two_postgres_workers_claim_at_most_one_job_per_resource(
-    jobs_for_resource: int,
-) -> None:
-    assert TEST_DATABASE_URL is not None
-    engine = create_engine(TEST_DATABASE_URL, pool_size=4)
-    session_factory = sessionmaker(bind=engine)
-
+def clean_database(engine: Engine) -> None:
     with engine.begin() as connection:
         for table in reversed(Base.metadata.sorted_tables):
             connection.execute(table.delete())
 
-    with Session(engine) as session:
+
+@pytest.fixture()
+def postgres_engine() -> Engine:
+    assert TEST_DATABASE_URL is not None
+    database_name = make_url(TEST_DATABASE_URL).database or ""
+    if not database_name.endswith("_test"):
+        pytest.fail("PostgreSQL concurrency tests require a database name ending in '_test'")
+
+    engine = create_engine(TEST_DATABASE_URL, pool_size=4)
+    clean_database(engine)
+    yield engine
+    clean_database(engine)
+    engine.dispose()
+
+
+@pytest.mark.parametrize("jobs_for_resource", [1, 2])
+def test_two_postgres_workers_claim_at_most_one_job_per_resource(
+    jobs_for_resource: int,
+    postgres_engine: Engine,
+) -> None:
+    session_factory = sessionmaker(bind=postgres_engine)
+
+    with Session(postgres_engine) as session:
         user = User(email="postgres-worker@example.local", role="user")
         template = Template(
             name="Postgres Claim Test",
@@ -69,7 +85,7 @@ def test_two_postgres_workers_claim_at_most_one_job_per_resource(
     assert len(claimed_ids) == 1
     assert claimed_ids[0] in job_ids
 
-    with Session(engine) as session:
+    with Session(postgres_engine) as session:
         claimed_job = session.get(Job, claimed_ids[0])
         assert claimed_job is not None
         assert claimed_job.status == JobStatus.RUNNING.value
@@ -77,5 +93,3 @@ def test_two_postgres_workers_claim_at_most_one_job_per_resource(
         assert claimed_job.claimed_by in {"postgres-worker-a", "postgres-worker-b"}
         statuses = session.query(Job.status).filter(Job.id.in_(job_ids)).all()
         assert sum(status == JobStatus.RUNNING.value for (status,) in statuses) == 1
-
-    engine.dispose()

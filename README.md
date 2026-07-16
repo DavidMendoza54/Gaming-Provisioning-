@@ -228,8 +228,8 @@ hands-on failure labs.
 Current local verification:
 
 ```text
-68 passed, 2 PostgreSQL integration cases skipped locally
-85% application coverage
+71 passed, including 2 real PostgreSQL concurrency cases
+85.10% application coverage
 All checks passed
 ```
 

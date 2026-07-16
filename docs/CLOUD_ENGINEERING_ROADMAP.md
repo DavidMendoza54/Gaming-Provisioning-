@@ -4,7 +4,7 @@ This roadmap turns TinyProvisioner into a portfolio project that demonstrates ho
 
 ## Phase 1: Continuous Integration
 
-**Status:** Implemented locally; the first GitHub run will occur after the workflow is pushed.
+**Status:** Implemented and validated locally; the first GitHub run will occur after push.
 
 Learn:
 
@@ -23,7 +23,7 @@ Evidence:
 
 ## Phase 2: Reliable Job Processing
 
-**Status:** Implemented locally; the PostgreSQL concurrency test will run in CI after push.
+**Status:** Implemented and validated against real local PostgreSQL concurrency; CI will repeat it after push.
 
 Learn:
 

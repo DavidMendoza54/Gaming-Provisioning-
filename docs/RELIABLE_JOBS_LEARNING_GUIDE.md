@@ -172,6 +172,26 @@ The fast unit suite proves:
 
 CI also starts a real PostgreSQL service. Two threads with separate database sessions attempt to claim work simultaneously. The test covers both one queued job and two jobs belonging to the same resource. The assertions prove only one worker receives work for that resource. SQLite remains useful for fast behavior tests, but it cannot prove PostgreSQL row-lock semantics.
 
+### Run the PostgreSQL cases locally
+
+These concurrency tests delete their own test records. They contain a safety guard and refuse to run unless the database name ends in `_test`. Never point `TEST_DATABASE_URL` at a development or production database.
+
+Create and migrate a dedicated local database:
+
+```bash
+docker compose exec postgres createdb -U provisioner provisioner_test
+DATABASE_URL=postgresql+psycopg://provisioner:provisioner@127.0.0.1:5432/provisioner_test \
+  .venv/bin/python -m alembic upgrade head
+```
+
+Run the complete suite against it:
+
+```bash
+DATABASE_URL=postgresql+psycopg://provisioner:provisioner@127.0.0.1:5432/provisioner_test \
+TEST_DATABASE_URL=postgresql+psycopg://provisioner:provisioner@127.0.0.1:5432/provisioner_test \
+  .venv/bin/python -m pytest
+```
+
 ## Hands-On Labs
 
 ### Lab 1: Watch two workers share the queue
