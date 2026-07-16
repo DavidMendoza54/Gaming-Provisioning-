@@ -120,10 +120,15 @@ Examples:
 - `restart_resource`
 - `delete_resource`
 
+A worker claims one ready job with a PostgreSQL row lock and records a renewable lease.
+Transient failures are delayed with exponential backoff. A job that exhausts its attempt
+limit enters the `dead` state so an operator can inspect it instead of losing the failure.
+
 Quiz:
 
 - Why are jobs safer than doing long work inside an API request?
 - What should happen if a job fails halfway through?
+- Why can the platform guarantee at-least-once execution but not exactly-once execution?
 
 ### Events
 
@@ -225,4 +230,3 @@ For each file:
 5. Change one small thing in a test and predict the failure.
 6. Revert the test change.
 7. Explain the file out loud in 60 seconds.
-

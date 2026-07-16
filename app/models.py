@@ -1,11 +1,11 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
-from app.state import ActualState, DesiredState
+from app.state import ActualState, DesiredState, JobStatus, WorkerStatus
 
 
 class TimestampMixin:
@@ -96,17 +96,70 @@ class Resource(TimestampMixin, Base):
 
 class Job(TimestampMixin, Base):
     __tablename__ = "jobs"
+    __table_args__ = (
+        Index("ix_jobs_claimable", "status", "available_at", "created_at"),
+        Index("ix_jobs_resource_status", "resource_id", "status"),
+        Index(
+            "uq_jobs_one_running_per_resource",
+            "resource_id",
+            unique=True,
+            postgresql_where=text("status = 'running'"),
+            sqlite_where=text("status = 'running'"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     resource_id: Mapped[int] = mapped_column(ForeignKey("resources.id"), index=True, nullable=False)
     kind: Mapped[str] = mapped_column(String(80), nullable=False)
-    status: Mapped[str] = mapped_column(String(50), default="queued", index=True, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(50),
+        default=JobStatus.QUEUED.value,
+        index=True,
+        nullable=False,
+    )
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    claimed_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     resource: Mapped[Resource] = relationship(back_populates="jobs")
+
+
+class Worker(TimestampMixin, Base):
+    __tablename__ = "workers"
+
+    id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    hostname: Mapped[str] = mapped_column(String(255), nullable=False)
+    process_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(50),
+        default=WorkerStatus.RUNNING.value,
+        nullable=False,
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    heartbeat_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        index=True,
+        nullable=False,
+    )
+    current_job_id: Mapped[int | None] = mapped_column(
+        ForeignKey("jobs.id"),
+        nullable=True,
+    )
 
 
 class Event(TimestampMixin, Base):

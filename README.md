@@ -18,7 +18,8 @@ I am studying DevOps and security, and I wanted a project that forced me to conn
 - Private container networking
 - Reverse proxy routing with Traefik
 - Postgres-backed state
-- Redis as stack infrastructure for future queue/cache work
+- PostgreSQL-backed job queue with worker leases and retries
+- Redis as stack infrastructure for future cache and rate-limit work
 - Health checks and operational debugging
 - Local deployment with Docker Compose
 - Test-driven safety around lifecycle behavior
@@ -33,7 +34,7 @@ I am studying DevOps and security, and I wanted a project that forced me to conn
 flowchart LR
     Browser["Browser / Control Panel"] --> API["FastAPI API"]
     API --> DB["Postgres\nusers, resources, jobs, events"]
-    API --> Redis["Redis\nfuture queue/cache helper"]
+    API --> Redis["Redis\nfuture cache helper"]
     Worker["Worker"] --> DB
     Worker --> Docker["Docker Engine"]
     Worker --> TraefikConfig["Traefik dynamic config"]
@@ -63,6 +64,9 @@ Browser
 - Template-backed resource creation
 - Resource lifecycle states: waiting, provisioning, running, stopping, stopped, starting, deleting, deleted, failed
 - Database-backed jobs and events
+- Atomic PostgreSQL job claiming with `FOR UPDATE SKIP LOCKED`
+- Capped exponential retries, dead-letter jobs, and abandoned-lease recovery
+- Database-backed worker and job heartbeats
 - Docker-backed provisioning mode
 - Tiny Python HTTP app as the first provisioned workload
 - Tiny Browser Game as a functional portfolio workload
@@ -84,7 +88,8 @@ Browser
 | Worker | Python worker loop with database-backed jobs |
 | Provisioning | Docker Engine |
 | Routing | Traefik reverse proxy |
-| Cache/queue foundation | Redis |
+| Durable job queue | PostgreSQL row locks and worker leases |
+| Cache foundation | Redis |
 | Local runtime | Docker Compose |
 | Testing | Pytest, Ruff |
 
@@ -157,6 +162,10 @@ This repo is meant to be studied, not just run. Start here:
 - [Local Runtime Validation](docs/LOCAL_RUNTIME_VALIDATION.md)
 - [Security Checklist](docs/SECURITY_CHECKLIST.md)
 - [VPS Runbook](docs/VPS_RUNBOOK.md)
+- [Cloud Engineering Project Roadmap](docs/CLOUD_ENGINEERING_ROADMAP.md)
+- [CI/CD Learning Guide](docs/CI_CD_LEARNING_GUIDE.md)
+- [Reliable Job Processing Learning Guide](docs/RELIABLE_JOBS_LEARNING_GUIDE.md)
+- [ADR 0001: PostgreSQL Job Leases](docs/adr/0001-postgres-job-leases.md)
 
 ## What I Learned
 
@@ -178,12 +187,12 @@ This is a learning project and not production-ready yet.
 
 - No payment, billing, or customer account management
 - No multi-host scheduler
-- No real Redis-backed queue yet
+- Database job queue is designed for modest control-plane throughput, not massive task volume
 - No advanced RBAC beyond basic user ownership
 - No full TLS automation in local mode
 - No persistent per-workload volumes
 - No image allowlist enforcement beyond seeded templates
-- No distributed locking for multiple workers
+- No operator UI for inspecting or replaying dead-letter jobs
 - No production observability stack such as Prometheus, Grafana, or structured log shipping
 - Docker socket access still makes the API and worker highly trusted services
 
@@ -204,10 +213,23 @@ This is a learning project and not production-ready yet.
 .\.venv\Scripts\python.exe -m ruff check .
 ```
 
+Run the CI coverage gate locally:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest --cov=app --cov-fail-under=80 --cov-report=term-missing
+```
+
+GitHub Actions now runs linting, tests with coverage, Compose validation, a Docker image
+build, and an HTTP smoke test for pull requests and pushes to `main`. Dependabot checks
+Python packages and GitHub Actions for updates each week. See the
+[CI/CD Learning Guide](docs/CI_CD_LEARNING_GUIDE.md) for the complete request flow and
+hands-on failure labs.
+
 Current local verification:
 
 ```text
-39 passed
+68 passed, 2 PostgreSQL integration cases skipped locally
+85% application coverage
 All checks passed
 ```
 
@@ -215,20 +237,18 @@ All checks passed
 
 Long version:
 
-> Built a Python/FastAPI compute provisioning control plane that accepts authenticated resource requests, queues lifecycle jobs, provisions Docker workloads, routes traffic through Traefik, stores state in Postgres, and exposes health/debug status for API, worker, Docker, Redis, and proxy services.
+> Built a Python/FastAPI compute provisioning control plane with atomic PostgreSQL job claiming, renewable worker leases, bounded retries, dead-letter handling, Docker workload provisioning, Traefik routing, and operational health checks.
 
 Short version:
 
-> Built a Docker-backed compute provisioning platform with FastAPI, Postgres, Traefik, Redis, background workers, lifecycle jobs, and system health checks.
+> Built a Docker-backed provisioning platform with horizontally safe PostgreSQL workers, retry and lease recovery, FastAPI, Traefik, and system health checks.
 
 ## Next Improvements
 
-- Move job execution to Redis/RQ or another real queue backend.
-- Add worker heartbeat tracking instead of inferring worker status from Docker.
 - Add container image allowlists and stronger template validation.
 - Add structured JSON logs and metrics.
 - Add TLS automation for VPS deployment.
 - Add per-resource volume cleanup and storage quotas.
-- Add GitHub Actions for test automation.
+- Extend GitHub Actions from CI into image publishing and environment deployment.
 - Finish the SSH provisioner remote script for VPS-based provisioning.
 - Add true UDP game server routing for Minetest or a similar server.

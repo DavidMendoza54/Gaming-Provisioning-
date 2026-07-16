@@ -34,7 +34,7 @@ Do not expose:
 Must survive restarts:
 
 - `postgres-data`: users, tokens, resources, jobs, events, external IDs.
-- `redis-data`: queued work if Redis append-only mode is enabled.
+- `redis-data`: future cache or rate-limit state if Redis persistence is enabled.
 - `letsencrypt`: TLS certificates.
 - `.env.production`: secrets and deployment settings.
 - Database backups.

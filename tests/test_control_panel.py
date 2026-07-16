@@ -19,3 +19,6 @@ def test_control_panel_is_served_at_root() -> None:
     assert "Resource request queued." in response.text
     assert "System Status" in response.text
     assert "/system/status" in response.text
+    assert "job.retry_scheduled" in response.text
+    assert "job.recovered" in response.text
+    assert "job.dead" in response.text

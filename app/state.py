@@ -19,6 +19,19 @@ class ActualState(StrEnum):
     DELETED = "deleted"
 
 
+class JobStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    CANCELLED = "cancelled"
+    DEAD = "dead"
+
+
+class WorkerStatus(StrEnum):
+    RUNNING = "running"
+    STOPPED = "stopped"
+
+
 ALLOWED_TRANSITIONS: dict[ActualState, set[ActualState]] = {
     ActualState.PENDING: {ActualState.PROVISIONING, ActualState.FAILED, ActualState.DELETING},
     ActualState.PROVISIONING: {ActualState.RUNNING, ActualState.FAILED, ActualState.DELETING},
@@ -36,4 +49,3 @@ def can_transition(current: str | ActualState, target: str | ActualState) -> boo
     current_state = ActualState(current)
     target_state = ActualState(target)
     return target_state in ALLOWED_TRANSITIONS[current_state]
-
