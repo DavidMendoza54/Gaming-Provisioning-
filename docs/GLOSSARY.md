@@ -122,6 +122,22 @@ In this project, jobs are currently database rows.
 
 A background process that processes queued jobs.
 
+## Lease
+
+A time-limited claim on a job. The owning worker renews the lease with heartbeats so another worker can recover the job if the owner disappears.
+
+## Exponential Backoff
+
+A retry policy that increases the wait after each failure. It prevents a dependency outage from causing a tight retry loop.
+
+## Dead-Letter Job
+
+A job that exhausted its allowed attempts or hit a permanent error. It remains stored for inspection instead of being silently discarded.
+
+## Fencing
+
+A final ownership check that prevents an old worker from committing after its lease was transferred to another worker.
+
 ## Provisioning
 
 Creating or preparing a resource.
@@ -141,4 +157,3 @@ Time to live. How long something should exist before it expires.
 An end-to-end test that proves the main system flow works.
 
 It does not test every detail. It proves the system is alive and wired together.
-

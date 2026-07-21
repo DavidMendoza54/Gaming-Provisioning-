@@ -96,7 +96,7 @@ A: It points many subdomains at the same server so the proxy can route dynamical
 
 Q: What data must survive restarts?
 
-A: Postgres data, backups, `.env.production`, TLS certs, and possibly Redis queue data.
+A: Postgres control-plane and job data, backups, `.env.production`, TLS certificates, and any future persistent Redis cache data.
 
 Q: Which ports should be public on the VPS?
 
@@ -208,4 +208,3 @@ Steps:
 Deliverable:
 
 Explain what the smoke test proves and what it does not prove.
-

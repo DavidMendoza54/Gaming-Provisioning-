@@ -669,6 +669,18 @@
           summary: "The worker hit an error and marked the resource failed.",
           flashcard: "Flashcard: Where would you look first: API logs, worker logs, or events?",
         },
+        "job.retry_scheduled": {
+          summary: "A transient failure occurred, so the job is waiting for a backoff delay.",
+          flashcard: "Flashcard: How does backoff protect an unhealthy dependency?",
+        },
+        "job.recovered": {
+          summary: "A worker lease expired and another worker made the abandoned job available again.",
+          flashcard: "Flashcard: Why does recovery require idempotent infrastructure operations?",
+        },
+        "job.dead": {
+          summary: "The retry policy ended, so the job remains stored for operator investigation.",
+          flashcard: "Flashcard: Why keep dead-letter work instead of deleting it?",
+        },
       };
 
       const elements = {

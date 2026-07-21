@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.models import Event, Job, Resource, Template, User
 from app.schemas import ResourceCreate
 from app.settings import get_settings
-from app.state import ActualState, DesiredState
+from app.state import ActualState, DesiredState, JobStatus
 
 
 SLUG_SAFE = re.compile(r"[^a-z0-9-]+")
@@ -54,7 +54,11 @@ def create_resource(session: Session, user: User, payload: ResourceCreate) -> Re
     session.add(resource)
     session.flush()
 
-    job = Job(resource_id=resource.id, kind="provision_resource", status="queued")
+    job = _new_job(
+        resource_id=resource.id,
+        kind="provision_resource",
+        max_attempts=settings.job_max_attempts,
+    )
     event = Event(
         resource_id=resource.id,
         actor_user_id=user.id,
@@ -149,8 +153,8 @@ def queue_delete_resource(session: Session, resource: Resource, actor: User) -> 
         return resource
 
     for job in resource.jobs:
-        if job.status == "queued" and job.kind != "delete_resource":
-            job.status = "cancelled"
+        if job.status == JobStatus.QUEUED.value and job.kind != "delete_resource":
+            job.status = JobStatus.CANCELLED.value
             job.finished_at = datetime.now(UTC)
 
     resource.desired_state = DesiredState.DELETED.value
@@ -177,7 +181,7 @@ def _add_job_and_event(
     event_type: str,
     message: str,
 ) -> None:
-    job = Job(resource_id=resource.id, kind=job_kind, status="queued")
+    job = _new_job(resource_id=resource.id, kind=job_kind)
     event = Event(
         resource_id=resource.id,
         actor_user_id=actor.id,
@@ -202,17 +206,20 @@ def queue_expired_resources_for_cleanup(session: Session, *, now: datetime | Non
 
     queued = 0
     for resource in expired_resources:
-        if any(job.status == "queued" and job.kind == "delete_resource" for job in resource.jobs):
+        if any(
+            job.status == JobStatus.QUEUED.value and job.kind == "delete_resource"
+            for job in resource.jobs
+        ):
             continue
 
         for job in resource.jobs:
-            if job.status == "queued" and job.kind != "delete_resource":
-                job.status = "cancelled"
+            if job.status == JobStatus.QUEUED.value and job.kind != "delete_resource":
+                job.status = JobStatus.CANCELLED.value
                 job.finished_at = datetime.now(UTC)
 
         resource.desired_state = DesiredState.DELETED.value
         resource.actual_state = ActualState.DELETING.value
-        job = Job(resource_id=resource.id, kind="delete_resource", status="queued")
+        job = _new_job(resource_id=resource.id, kind="delete_resource")
         event = Event(
             resource_id=resource.id,
             actor_user_id=None,
@@ -225,3 +232,13 @@ def queue_expired_resources_for_cleanup(session: Session, *, now: datetime | Non
 
     session.commit()
     return queued
+
+
+def _new_job(*, resource_id: int, kind: str, max_attempts: int | None = None) -> Job:
+    configured_attempts = max_attempts or get_settings().job_max_attempts
+    return Job(
+        resource_id=resource_id,
+        kind=kind,
+        status=JobStatus.QUEUED.value,
+        max_attempts=configured_attempts,
+    )

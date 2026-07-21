@@ -69,6 +69,11 @@ class JobRead(BaseModel):
     kind: str
     status: str
     attempts: int
+    max_attempts: int
+    available_at: datetime
+    claimed_by: str | None
+    claimed_at: datetime | None
+    heartbeat_at: datetime | None
     last_error: str | None
     started_at: datetime | None
     finished_at: datetime | None

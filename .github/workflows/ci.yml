@@ -1,0 +1,140 @@
+name: Continuous Integration
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# A CI job only needs to read this repository. Grant more access at the job level
+# later if a deployment job has a specific reason to publish or deploy something.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  quality:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: postgresql+psycopg://provisioner:provisioner@127.0.0.1:5432/provisioner_test
+      TEST_DATABASE_URL: postgresql+psycopg://provisioner:provisioner@127.0.0.1:5432/provisioner_test
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: provisioner
+          POSTGRES_PASSWORD: provisioner
+          POSTGRES_DB: provisioner_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U provisioner -d provisioner_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Check out the repository
+        # v6.0.2: pin the full commit SHA so the downloaded action cannot change silently.
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        # v6.2.0
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install the application and development tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --editable ".[dev]"
+
+      - name: Lint the repository
+        run: python -m ruff check --output-format=github .
+
+      - name: Apply database migrations
+        run: python -m alembic upgrade head
+
+      - name: Run tests with coverage
+        run: |
+          mkdir -p reports
+          python -m pytest \
+            --junitxml=reports/pytest.xml \
+            --cov=app \
+            --cov-fail-under=80 \
+            --cov-report=term-missing \
+            --cov-report=xml:reports/coverage.xml
+
+      - name: Save test and coverage reports
+        if: always()
+        # v7.0.0
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
+        with:
+          name: python-quality-reports
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 14
+
+  container:
+    name: Build and smoke-test container
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the repository
+        # v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Validate Compose configuration
+        run: |
+          cp .env.example .env
+          cp .env.production.example .env.production
+          docker compose -f docker-compose.yml config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.docker.yml config --quiet
+          docker compose --env-file .env.production -f docker-compose.prod.yml config --quiet
+
+      - name: Build the API image
+        run: docker build --tag tiny-provisioner:ci .
+
+      - name: Start the API container
+        run: |
+          docker run \
+            --detach \
+            --name tiny-provisioner-ci \
+            --publish 127.0.0.1:8000:8000 \
+            tiny-provisioner:ci
+
+      - name: Smoke-test the running API
+        run: |
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent --show-error http://127.0.0.1:8000/ > /dev/null; then
+              echo "TinyProvisioner responded successfully."
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "TinyProvisioner did not become ready. Container logs:"
+          docker logs tiny-provisioner-ci
+          exit 1
+
+      - name: Remove the test container
+        if: always()
+        run: docker rm --force tiny-provisioner-ci || true

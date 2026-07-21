@@ -182,7 +182,7 @@ This is cleaner and safer than exposing every container directly. It also models
 
 Role:
 
-Redis is included as stack infrastructure and future queue/cache support. The current worker mainly uses database-backed jobs.
+Redis is included as stack infrastructure for future caching and rate limiting. The worker intentionally uses PostgreSQL-backed jobs so job, resource, and event state share one durable transaction system.
 
 Important file:
 
@@ -190,7 +190,7 @@ Important file:
 
 Interview talking point:
 
-Redis is not heavily used yet, but it is a realistic next step for job queues, locks, rate limiting, and short-lived state.
+Redis is not heavily used yet, but it is a realistic next step for rate limiting, caching, and short-lived state. A dedicated queue such as RQ remains an option if future throughput justifies another coordination system.
 
 ### System Status
 
@@ -478,7 +478,7 @@ Traefik gives one controlled public entrypoint and routes hostnames to private c
 
 ### 9. What happens if the worker is down?
 
-The API can still accept requests and create jobs, but resources stay waiting because no process is handling the queued jobs.
+The API can still accept requests and create jobs, but resources stay waiting until a worker returns. If one of several workers disappears during a job, its lease expires and a healthy worker recovers the abandoned work.
 
 ### 10. What happens if Traefik is down?
 
@@ -486,7 +486,7 @@ Containers may still be running, but users cannot reach them through their hostn
 
 ### 11. What happens if Docker is down?
 
-The worker cannot create, stop, start, or delete containers. Jobs would fail or resources would move to failed state.
+The worker cannot create, stop, start, or delete containers. Transient job failures back off and retry; jobs move to the dead-letter state only after the retry policy is exhausted.
 
 ### 12. What happens if Postgres is down?
 
@@ -498,11 +498,11 @@ A unit test checks one small piece of behavior. A smoke test checks that the mai
 
 ### 14. How would you scale this project?
 
-I would move job processing to a real queue like Redis/RQ, add worker heartbeats, add structured logs and metrics, add stronger image allowlists, add per-resource storage limits, and eventually separate workloads across multiple hosts.
+The PostgreSQL queue can already scale across worker replicas with `SKIP LOCKED`, leases, and heartbeats. Next I would add structured logs and metrics, stronger image allowlists, per-resource storage limits, and eventually a multi-host scheduler. If queue throughput became a bottleneck, I would evaluate RQ or another dedicated queue using measured requirements.
 
 ### 15. Is this production-ready?
 
-No. It is a learning project that models production concepts. It still needs stronger queueing, observability, RBAC, TLS automation, image policy, host hardening, and multi-host scheduling before production use.
+No. It is a learning project that models production concepts. It still needs production observability, stronger RBAC, TLS automation, image policy, host hardening, dead-letter operations, and multi-host scheduling before production use.
 
 ### 16. Why did you start with a fake provisioner?
 
@@ -522,7 +522,7 @@ Templates define approved workload types. Instead of letting users run any image
 
 ### 20. What would you improve next?
 
-I would add a real Redis-backed job queue, worker heartbeats, GitHub Actions, structured logging, metrics, TLS for VPS deployment, and stronger container/image policy.
+I would add structured logging, Prometheus metrics and alerts, Terraform-managed cloud infrastructure, image scanning, TLS automation, and stronger container policy. The PostgreSQL queue, worker heartbeats, and CI foundation are already implemented.
 
 ## Debugging Scenarios
 

@@ -160,28 +160,33 @@ Purpose: turns queued jobs into provisioner actions.
 Important functions:
 
 - `add_event()`: records worker-side events.
-- `mark_job_running()`: sets attempts and start time.
+- `claim_jobs()`: atomically leases ready work with `FOR UPDATE SKIP LOCKED`.
+- `heartbeat_job_lease()`: proves a busy worker still owns its job.
+- `recover_abandoned_jobs()`: requeues work whose lease expired.
+- `handle_job_failure()`: applies retry or dead-letter policy.
 - `mark_job_succeeded()`: records successful completion.
 - `provision_resource()`: calls provisioner and marks resource running.
 - `start_resource()`: starts an existing external resource.
 - `stop_resource()`: stops an existing external resource.
 - `restart_resource()`: stop then start.
 - `delete_resource()`: calls provisioner delete and marks resource deleted.
-- `process_queued_jobs()`: dispatches queued jobs by kind.
-- `run_once()`: queues expired cleanup, then processes jobs.
+- `process_queued_jobs()`: claims and dispatches one job at a time.
+- `run_once()`: recovers leases, queues expired cleanup, then processes jobs.
 - `main()`: forever loop for the worker container.
 
 Line-level reading prompts:
 
 - In each worker action, find the first database state change.
 - Find where failures become `resource.failed` events.
+- Find where transient failures become `job.retry_scheduled` events.
 - Find where the provisioner interface is used instead of hardcoding Docker.
 
 Questions:
 
 - Why does the worker commit state before calling the provisioner?
 - What happens if a provisioner call raises an exception?
-- Why is `resource_id` saved before the `try` block?
+- Why is the row lock released before the provisioner call?
+- Why do the provisioners need idempotent operations?
 
 ## Provisioners
 
@@ -271,4 +276,3 @@ Questions:
 - Which test proves user A cannot view user B's resource?
 - Which test proves delete is idempotent?
 - Which test proves Docker containers do not publish host ports?
-
