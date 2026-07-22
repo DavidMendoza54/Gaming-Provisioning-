@@ -1,0 +1,81 @@
+groups:
+  - name: tinyprovisioner-availability
+    rules:
+      - alert: TinyProvisionerApiDown
+        expr: up{job="tinyprovisioner-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: TinyProvisioner API is unreachable
+          description: Prometheus has failed to scrape the API for more than one minute.
+          runbook: docs/OBSERVABILITY_LEARNING_GUIDE.md#api-or-worker-down
+
+      - alert: TinyProvisionerWorkerDown
+        expr: up{job="tinyprovisioner-worker"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: TinyProvisioner worker is unreachable
+          description: Prometheus has failed to scrape the worker for more than one minute.
+          runbook: docs/OBSERVABILITY_LEARNING_GUIDE.md#api-or-worker-down
+
+      - alert: TinyProvisionerWorkerLoopStale
+        expr: time() - tinyprovisioner_worker_last_successful_loop_timestamp_seconds > 30
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Worker is reachable but its polling loop is stale
+          description: The worker metrics server responds, but no successful loop was recorded recently.
+          runbook: docs/OBSERVABILITY_LEARNING_GUIDE.md#stale-worker-loop
+
+  - name: tinyprovisioner-symptoms
+    rules:
+      - alert: TinyProvisionerHighApiErrorRatio
+        expr: |
+          sum(rate(tinyprovisioner_http_requests_total{status_code=~"5.."}[5m]))
+          /
+          sum(rate(tinyprovisioner_http_requests_total[5m]))
+          > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: API error ratio is above five percent
+          description: More than five percent of API requests have returned 5xx responses for five minutes.
+          runbook: docs/OBSERVABILITY_LEARNING_GUIDE.md#high-api-error-ratio
+
+      - alert: TinyProvisionerHighApiLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(tinyprovisioner_http_request_duration_seconds_bucket[5m]))
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: API p95 latency is above one second
+          description: The slowest five percent of API requests have exceeded one second for five minutes.
+          runbook: docs/OBSERVABILITY_LEARNING_GUIDE.md#high-api-latency
+
+      - alert: TinyProvisionerQueueBacklog
+        expr: tinyprovisioner_worker_queue_depth{status="queued"} > 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Durable job queue is backing up
+          description: More than ten jobs have remained queued for ten minutes.
+          runbook: docs/OBSERVABILITY_LEARNING_GUIDE.md#queue-backlog
+
+      - alert: TinyProvisionerDeadLetterJob
+        expr: increase(tinyprovisioner_worker_job_results_total{result=~".*dead"}[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: A job entered the dead-letter state
+          description: At least one job exhausted its retry policy during the last five minutes.
+          runbook: docs/OBSERVABILITY_LEARNING_GUIDE.md#dead-letter-job

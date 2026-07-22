@@ -19,6 +19,8 @@ I am studying DevOps and security, and I wanted a project that forced me to conn
 - Reverse proxy routing with Traefik
 - Postgres-backed state
 - PostgreSQL-backed job queue with worker leases and retries
+- Structured JSON logs with request and job correlation fields
+- Prometheus metrics, Grafana dashboards, and symptom-based alerts
 - Redis as stack infrastructure for future cache and rate-limit work
 - Health checks and operational debugging
 - Local deployment with Docker Compose
@@ -36,6 +38,10 @@ flowchart LR
     API --> DB["Postgres\nusers, resources, jobs, events"]
     API --> Redis["Redis\nfuture cache helper"]
     Worker["Worker"] --> DB
+    Prometheus["Prometheus"] --> API
+    Prometheus --> Worker
+    Grafana["Grafana"] --> Prometheus
+    Prometheus --> Alertmanager["Alertmanager"]
     Worker --> Docker["Docker Engine"]
     Worker --> TraefikConfig["Traefik dynamic config"]
     Docker --> App["Provisioned app container"]
@@ -75,6 +81,10 @@ Browser
 - Resource quota and TTL cleanup guardrails
 - Workload logs endpoint
 - System Status panel for API, database, Redis, Docker, worker, and Traefik
+- Structured JSON request and worker logs with safe correlation identifiers
+- API RED metrics and durable worker queue/job metrics
+- Version-controlled Prometheus, Grafana, and Alertmanager configuration
+- Provisioned platform dashboard and alerts for availability, latency, errors, and backlog
 - Learning Mode toggle for switching between a clean portfolio demo and guided study prompts
 - First SSH provisioning slice with a controlled remote Docker script
 - Test suite covering auth, lifecycle behavior, Docker provisioning, cleanup, compose config, and UI serving
@@ -92,6 +102,7 @@ Browser
 | Cache foundation | Redis |
 | Local runtime | Docker Compose |
 | Testing | Pytest, Ruff |
+| Observability | Prometheus, Grafana, Alertmanager, structured JSON logs |
 
 ## Local Quickstart
 
@@ -119,6 +130,17 @@ Open the control panel:
 ```text
 http://127.0.0.1:8000/
 ```
+
+Open the observability tools:
+
+```text
+Grafana:      http://127.0.0.1:3000
+Prometheus:   http://127.0.0.1:9090
+Alertmanager: http://127.0.0.1:9093
+```
+
+Grafana uses the `GRAFANA_ADMIN_USER` and `GRAFANA_ADMIN_PASSWORD` values from `.env`.
+The safe local defaults are `admin` / `admin`.
 
 ## Docker Provisioning Mode
 
@@ -165,7 +187,9 @@ This repo is meant to be studied, not just run. Start here:
 - [Cloud Engineering Project Roadmap](docs/CLOUD_ENGINEERING_ROADMAP.md)
 - [CI/CD Learning Guide](docs/CI_CD_LEARNING_GUIDE.md)
 - [Reliable Job Processing Learning Guide](docs/RELIABLE_JOBS_LEARNING_GUIDE.md)
+- [Observability Learning Guide](docs/OBSERVABILITY_LEARNING_GUIDE.md)
 - [ADR 0001: PostgreSQL Job Leases](docs/adr/0001-postgres-job-leases.md)
+- [ADR 0002: Pull-Based Observability](docs/adr/0002-pull-based-observability.md)
 
 ## What I Learned
 
@@ -193,7 +217,9 @@ This is a learning project and not production-ready yet.
 - No persistent per-workload volumes
 - No image allowlist enforcement beyond seeded templates
 - No operator UI for inspecting or replaying dead-letter jobs
-- No production observability stack such as Prometheus, Grafana, or structured log shipping
+- Structured logs remain in container stdout and are not yet shipped to a central log store
+- Request correlation is implemented, but full OpenTelemetry tracing is not
+- Local Alertmanager demonstrates grouping and silencing but has no external notification receiver
 - Docker socket access still makes the API and worker highly trusted services
 
 ## Security Notes
@@ -228,8 +254,8 @@ hands-on failure labs.
 Current local verification:
 
 ```text
-71 passed, including 2 real PostgreSQL concurrency cases
-85.10% application coverage
+78 passed, including 2 real PostgreSQL concurrency cases
+85.07% application coverage
 All checks passed
 ```
 
@@ -237,16 +263,16 @@ All checks passed
 
 Long version:
 
-> Built a Python/FastAPI compute provisioning control plane with atomic PostgreSQL job claiming, renewable worker leases, bounded retries, dead-letter handling, Docker workload provisioning, Traefik routing, and operational health checks.
+> Built a Python/FastAPI compute provisioning control plane with atomic PostgreSQL job claiming, renewable worker leases, bounded retries, dead-letter handling, Docker workload provisioning, Prometheus/Grafana observability, structured logs, and symptom-based alerts.
 
 Short version:
 
-> Built a Docker-backed provisioning platform with horizontally safe PostgreSQL workers, retry and lease recovery, FastAPI, Traefik, and system health checks.
+> Built a Docker-backed provisioning platform with horizontally safe PostgreSQL workers, retry and lease recovery, FastAPI, Traefik, Prometheus, Grafana, and alert-driven operations.
 
 ## Next Improvements
 
 - Add container image allowlists and stronger template validation.
-- Add structured JSON logs and metrics.
+- Add OpenTelemetry traces and centralized log shipping.
 - Add TLS automation for VPS deployment.
 - Add per-resource volume cleanup and storage quotas.
 - Extend GitHub Actions from CI into image publishing and environment deployment.

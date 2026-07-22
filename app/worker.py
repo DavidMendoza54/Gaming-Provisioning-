@@ -2,20 +2,30 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import os
 import signal
 import socket
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from time import sleep
+from time import perf_counter, sleep
 from uuid import uuid4
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, aliased
 
 from app.database import SessionLocal
 from app.models import Event, Job, Resource, Worker
+from app.observability import (
+    configure_logging,
+    record_worker_job_claim,
+    record_worker_job_result,
+    record_worker_loop,
+    record_worker_recovery,
+    set_worker_queue_depth,
+    start_worker_metrics_server,
+)
 from app.provisioners.factory import make_provisioner
 from app.services.resources import queue_expired_resources_for_cleanup
 from app.settings import get_settings
@@ -24,6 +34,7 @@ from app.state import ActualState, DesiredState, JobStatus, WorkerStatus
 
 SessionFactory = Callable[[], Session]
 ONE_RUNNING_JOB_INDEX = "uq_jobs_one_running_per_resource"
+logger = logging.getLogger("tinyprovisioner.worker")
 
 
 class PermanentJobError(RuntimeError):
@@ -153,6 +164,18 @@ def claim_jobs(
         )
         session.commit()
         return []
+    for job in jobs:
+        record_worker_job_claim(kind=job.kind)
+        logger.info(
+            "worker.job.claimed",
+            extra={
+                "worker_id": worker_id,
+                "job_id": job.id,
+                "job_kind": job.kind,
+                "resource_id": job.resource_id,
+                "attempt": job.attempts,
+            },
+        )
     return jobs
 
 
@@ -419,7 +442,15 @@ async def maintain_job_lease(
                 ):
                     return
         except SQLAlchemyError as exc:
-            print(f"Worker heartbeat failed: {exc}", flush=True)
+            logger.warning(
+                "worker.heartbeat.failed",
+                extra={
+                    "worker_id": worker_id,
+                    "job_id": job_id,
+                    "error_type": type(exc).__name__,
+                },
+                exc_info=True,
+            )
 
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=max(1, interval_seconds))
@@ -443,7 +474,7 @@ def handle_job_failure(
     retryable: bool,
     worker_id: str,
     now: datetime,
-) -> None:
+) -> str:
     settings = get_settings()
     job = session.get(Job, job_id, with_for_update=True)
     resource = session.get(Resource, resource_id)
@@ -453,7 +484,16 @@ def handle_job_failure(
         or job.claimed_by != worker_id
     ):
         session.rollback()
-        return
+        logger.warning(
+            "worker.job.claim_lost",
+            extra={
+                "worker_id": worker_id,
+                "job_id": job_id,
+                "resource_id": resource_id,
+                "result": "lost_claim",
+            },
+        )
+        return "lost_claim"
 
     job.last_error = str(error)
     if retryable and job.attempts < job.max_attempts:
@@ -485,7 +525,20 @@ def handle_job_failure(
                 },
             )
         session.commit()
-        return
+        logger.warning(
+            "worker.job.retry_scheduled",
+            extra={
+                "worker_id": worker_id,
+                "job_id": job.id,
+                "job_kind": job.kind,
+                "resource_id": resource_id,
+                "attempt": job.attempts,
+                "result": "retry",
+                "retry_in_seconds": delay,
+                "error_type": type(error).__name__,
+            },
+        )
+        return "retry"
 
     job.status = JobStatus.DEAD.value
     job.finished_at = now
@@ -513,6 +566,19 @@ def handle_job_failure(
             metadata={"job_id": job.id, "error": str(error)},
         )
     session.commit()
+    logger.error(
+        "worker.job.dead",
+        extra={
+            "worker_id": worker_id,
+            "job_id": job.id,
+            "job_kind": job.kind,
+            "resource_id": resource_id,
+            "attempt": job.attempts,
+            "result": "dead",
+            "error_type": type(error).__name__,
+        },
+    )
+    return "dead"
 
 
 async def process_claimed_job(
@@ -523,9 +589,11 @@ async def process_claimed_job(
     now: datetime | None = None,
     heartbeat_session_factory: SessionFactory | None = None,
 ) -> None:
+    started_at = perf_counter()
+    job_kind = job.kind
     resource = session.get(Resource, job.resource_id)
     if resource is None:
-        handle_job_failure(
+        result = handle_job_failure(
             session,
             job_id=job.id,
             resource_id=job.resource_id,
@@ -533,6 +601,11 @@ async def process_claimed_job(
             retryable=False,
             worker_id=worker_id,
             now=now or utc_now(),
+        )
+        record_worker_job_result(
+            kind=job_kind,
+            result=result,
+            duration_seconds=perf_counter() - started_at,
         )
         return
 
@@ -554,7 +627,7 @@ async def process_claimed_job(
     except Exception as exc:
         await _stop_heartbeat(heartbeat_task, stop_event)
         session.rollback()
-        handle_job_failure(
+        result = handle_job_failure(
             session,
             job_id=job.id,
             resource_id=resource.id,
@@ -563,14 +636,39 @@ async def process_claimed_job(
             worker_id=worker_id,
             now=now or utc_now(),
         )
+        record_worker_job_result(
+            kind=job_kind,
+            result=result,
+            duration_seconds=perf_counter() - started_at,
+        )
         return
 
     await _stop_heartbeat(heartbeat_task, stop_event)
-    mark_job_succeeded(
+    succeeded = mark_job_succeeded(
         session,
         job,
         worker_id=worker_id,
         now=now or utc_now(),
+    )
+    result = "succeeded" if succeeded else "lost_claim"
+    duration_seconds = perf_counter() - started_at
+    record_worker_job_result(
+        kind=job_kind,
+        result=result,
+        duration_seconds=duration_seconds,
+    )
+    log_method = logger.info if succeeded else logger.warning
+    log_method(
+        "worker.job.completed" if succeeded else "worker.job.claim_lost",
+        extra={
+            "worker_id": worker_id,
+            "job_id": job.id,
+            "job_kind": job_kind,
+            "resource_id": job.resource_id,
+            "attempt": job.attempts,
+            "result": result,
+            "duration_ms": round(duration_seconds * 1000, 3),
+        },
     )
 
 
@@ -624,6 +722,7 @@ def recover_abandoned_jobs(
         ).all()
     )
 
+    recovery_results: list[dict[str, object]] = []
     for job in jobs:
         worker_id = job.claimed_by
         resource = session.get(Resource, job.resource_id)
@@ -656,6 +755,16 @@ def recover_abandoned_jobs(
                         "retry_in_seconds": delay,
                     },
                 )
+            recovery_results.append(
+                {
+                    "worker_id": worker_id,
+                    "job_id": job.id,
+                    "job_kind": job.kind,
+                    "resource_id": job.resource_id,
+                    "attempt": job.attempts,
+                    "result": "retry",
+                }
+            )
             continue
 
         job.status = JobStatus.DEAD.value
@@ -676,9 +785,35 @@ def recover_abandoned_jobs(
                 message="The resource failed after its worker lease expired.",
                 metadata={"job_id": job.id, "error": error},
             )
+        recovery_results.append(
+            {
+                "worker_id": worker_id,
+                "job_id": job.id,
+                "job_kind": job.kind,
+                "resource_id": job.resource_id,
+                "attempt": job.attempts,
+                "result": "dead",
+            }
+        )
 
     session.commit()
+    for recovery in recovery_results:
+        outcome = str(recovery["result"])
+        record_worker_recovery(outcome=outcome)
+        record_worker_job_result(
+            kind=str(recovery["job_kind"]),
+            result=f"recovered_{outcome}",
+            duration_seconds=None,
+        )
+        logger.warning("worker.job.recovered", extra=recovery)
     return len(jobs)
+
+
+def observe_queue_depth(session: Session) -> dict[str, int]:
+    rows = session.execute(select(Job.status, func.count(Job.id)).group_by(Job.status)).all()
+    counts = {str(status): int(count) for status, count in rows}
+    set_worker_queue_depth(counts)
+    return counts
 
 
 def _clear_current_job(
@@ -715,16 +850,37 @@ async def run_once(
     worker_id: str | None = None,
     heartbeat_session_factory: SessionFactory | None = SessionLocal,
 ) -> int:
+    started_at = perf_counter()
     selected_worker_id = worker_id or make_worker_id()
-    with SessionLocal() as session:
-        recovered = recover_abandoned_jobs(session)
-        queued_cleanup = queue_expired_resources_for_cleanup(session)
-        processed = await process_queued_jobs(
-            session,
-            worker_id=selected_worker_id,
-            heartbeat_session_factory=heartbeat_session_factory,
+    try:
+        with SessionLocal() as session:
+            recovered = recover_abandoned_jobs(session)
+            queued_cleanup = queue_expired_resources_for_cleanup(session)
+            processed = await process_queued_jobs(
+                session,
+                worker_id=selected_worker_id,
+                heartbeat_session_factory=heartbeat_session_factory,
+            )
+            observe_queue_depth(session)
+    except Exception:
+        record_worker_loop(result="error", duration_seconds=perf_counter() - started_at)
+        raise
+
+    duration_seconds = perf_counter() - started_at
+    record_worker_loop(result="success", duration_seconds=duration_seconds)
+    total = recovered + queued_cleanup + processed
+    if total:
+        logger.info(
+            "worker.loop.completed",
+            extra={
+                "worker_id": selected_worker_id,
+                "recovered_jobs": recovered,
+                "queued_cleanup": queued_cleanup,
+                "processed_jobs": processed,
+                "duration_ms": round(duration_seconds * 1000, 3),
+            },
         )
-        return recovered + queued_cleanup + processed
+    return total
 
 
 def mark_worker_stopped(worker_id: str) -> None:
@@ -740,7 +896,7 @@ def mark_worker_stopped(worker_id: str) -> None:
 
 def run_forever(*, idle_sleep_seconds: int = 3) -> None:
     worker_id = make_worker_id()
-    print(f"TinyProvisioner worker started: {worker_id}")
+    logger.info("worker.started", extra={"worker_id": worker_id})
     try:
         while True:
             try:
@@ -751,19 +907,33 @@ def run_forever(*, idle_sleep_seconds: int = 3) -> None:
                     )
                 )
             except SQLAlchemyError as exc:
-                print(f"Worker database not ready, retrying: {exc}", flush=True)
+                logger.warning(
+                    "worker.database_unavailable",
+                    extra={
+                        "worker_id": worker_id,
+                        "error_type": type(exc).__name__,
+                    },
+                    exc_info=True,
+                )
                 sleep(idle_sleep_seconds)
                 continue
 
             if processed == 0:
                 sleep(idle_sleep_seconds)
     except KeyboardInterrupt:
-        print("TinyProvisioner worker shutdown requested", flush=True)
+        logger.info("worker.shutdown_requested", extra={"worker_id": worker_id})
     finally:
         try:
             mark_worker_stopped(worker_id)
         except SQLAlchemyError as exc:
-            print(f"Could not record worker shutdown: {exc}", flush=True)
+            logger.error(
+                "worker.shutdown_record_failed",
+                extra={
+                    "worker_id": worker_id,
+                    "error_type": type(exc).__name__,
+                },
+                exc_info=True,
+            )
 
 
 def _request_shutdown(_signum: int, _frame: object) -> None:
@@ -771,6 +941,13 @@ def _request_shutdown(_signum: int, _frame: object) -> None:
 
 
 def main() -> None:
+    settings = get_settings()
+    configure_logging(service="worker", level=settings.log_level)
+    start_worker_metrics_server(port=settings.worker_metrics_port)
+    logger.info(
+        "worker.metrics_started",
+        extra={"metrics_port": settings.worker_metrics_port},
+    )
     signal.signal(signal.SIGTERM, _request_shutdown)
     run_forever()
 

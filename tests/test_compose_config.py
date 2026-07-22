@@ -44,6 +44,18 @@ def test_runtime_image_contains_database_migrations() -> None:
     assert "COPY migrations ./migrations" in dockerfile
 
 
+def test_observability_services_are_pinned_and_bound_to_loopback() -> None:
+    compose = Path("docker-compose.yml").read_text()
+
+    assert "image: prom/prometheus:v3.12.0" in compose
+    assert "image: prom/alertmanager:v0.32.1" in compose
+    assert "image: grafana/grafana:13.1.0" in compose
+    assert '"127.0.0.1:9090:9090"' in compose
+    assert '"127.0.0.1:9093:9093"' in compose
+    assert '"127.0.0.1:3000:3000"' in compose
+    assert '"9101"' in compose
+
+
 def test_production_compose_does_not_publish_datastores_or_api_directly() -> None:
     compose = Path("docker-compose.prod.yml").read_text()
 
