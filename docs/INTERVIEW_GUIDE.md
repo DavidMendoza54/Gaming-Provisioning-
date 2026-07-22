@@ -14,7 +14,7 @@ When you study, keep the code open beside this guide. Your goal is not to memori
 
 ## One-Minute Project Pitch
 
-TinyProvisioner is a small compute provisioning control plane. A user logs in, requests a resource, and the API records that desired state in Postgres. A background worker processes queued jobs and calls a provisioner backend. In Docker mode, that backend creates a container on a private Docker network, applies basic resource and security limits, and updates Traefik routing so the workload can be reached through a hostname. The control panel shows resources, lifecycle events, logs, and system health checks.
+TinyProvisioner is a small compute provisioning control plane. A user logs in, requests a resource, and the API records that desired state in Postgres. A background worker safely claims the job with PostgreSQL row locks and calls a provisioner backend. In Docker mode, that backend creates a container on a private network and updates Traefik routing. Prometheus independently scrapes API and worker metrics, Grafana visualizes RED and queue signals, Alertmanager groups symptom-based alerts, and structured logs provide request and job correlation.
 
 Shorter version:
 
@@ -32,6 +32,9 @@ TinyProvisioner is a FastAPI, Postgres, Docker, and Traefik project that models 
 - Private container networking
 - Reverse proxy routing with Traefik
 - System health checks
+- Structured JSON logging and request correlation
+- Prometheus RED and worker queue metrics
+- Version-controlled Grafana dashboards and alert runbooks
 - Defensive cleanup and idempotent delete behavior
 - Tests for auth, lifecycle, Docker behavior, and config safety
 
@@ -54,6 +57,9 @@ The most important separation:
 - Docker: runs the actual workload
 - Traefik: routes traffic to the workload
 - Postgres: remembers what happened and what should happen
+- Prometheus: stores numeric behavior over time
+- Grafana: visualizes Prometheus queries
+- Alertmanager: groups, deduplicates, and silences alerts
 
 ## Control Plane vs Data Plane
 
@@ -208,6 +214,28 @@ Important files:
 Interview talking point:
 
 This is operational visibility. When a resource is stuck, I can quickly tell whether the issue is the API, worker, Docker, database, Redis, or Traefik.
+
+### Observability Stack
+
+Role:
+
+The API and worker emit structured logs and expose separate Prometheus metrics. Grafana provisions a platform dashboard from Git-controlled JSON. Prometheus evaluates alert rules, and Alertmanager groups active alerts.
+
+Important files:
+
+- `app/observability.py`
+- `observability/prometheus/prometheus.yml`
+- `observability/prometheus/alerts.yml`
+- `observability/grafana/dashboards/tinyprovisioner-overview.json`
+- `docs/OBSERVABILITY_LEARNING_GUIDE.md`
+
+Key design choice:
+
+High-cardinality identifiers such as request, resource, job, and user IDs remain log fields. Metrics use bounded labels such as route templates, status codes, job kinds, and outcomes.
+
+Interview talking point:
+
+I separated API and worker scrape targets because they are independent failure domains. If the worker disappears, Prometheus records its target as down even while the API remains healthy. I also distinguish target-down from a reachable worker whose database polling loop is stale.
 
 ## Core Data Models
 

@@ -4,7 +4,7 @@ This roadmap turns TinyProvisioner into a portfolio project that demonstrates ho
 
 ## Phase 1: Continuous Integration
 
-**Status:** Implemented and validated locally; the first GitHub run will occur after push.
+**Status:** Complete. Local validation and GitHub CI both passed before merge.
 
 Learn:
 
@@ -23,7 +23,7 @@ Evidence:
 
 ## Phase 2: Reliable Job Processing
 
-**Status:** Implemented and validated against real local PostgreSQL concurrency; CI will repeat it after push.
+**Status:** Complete. Real local PostgreSQL concurrency and GitHub CI both passed.
 
 Learn:
 
@@ -42,6 +42,8 @@ Evidence:
 
 ## Phase 3: Observability
 
+**Status:** Complete. The full stack, scrape targets, alert rules, and provisioned dashboard were validated live with Docker Compose.
+
 Learn:
 
 - Structured logs, metrics, and traces
@@ -54,7 +56,7 @@ Evidence:
 - Prometheus metrics endpoint
 - Grafana platform dashboard
 - Alerts for API failures, worker health, and queue depth
-- Screenshot and troubleshooting exercise in the README
+- Version-controlled dashboard, learning guide, ADR, runbooks, and failure labs
 
 ## Phase 4: Infrastructure as Code
 

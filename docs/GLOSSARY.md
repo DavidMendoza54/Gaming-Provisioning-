@@ -157,3 +157,47 @@ Time to live. How long something should exist before it expires.
 An end-to-end test that proves the main system flow works.
 
 It does not test every detail. It proves the system is alive and wired together.
+
+## Observability
+
+The ability to understand a system's internal behavior from the signals it produces, especially logs, metrics, and traces.
+
+## Structured Log
+
+A log event represented as predictable fields instead of an unstructured sentence. TinyProvisioner emits one JSON object per application log line.
+
+## Metric
+
+A numeric measurement collected over time. Counters increase, gauges move up and down, and histograms group observations into buckets.
+
+## Trace
+
+A representation of one operation as it crosses services and nested spans. Request IDs provide correlation but are not a complete distributed trace.
+
+## Prometheus
+
+A monitoring system that periodically scrapes metric endpoints, stores time series, evaluates PromQL queries, and runs alert rules.
+
+## Scrape
+
+One Prometheus request to a target's metrics endpoint. The built-in `up` metric records whether the scrape succeeded.
+
+## Label Cardinality
+
+The number of unique label combinations stored for a metric. IDs, emails, and raw URLs create unbounded cardinality and should remain log fields rather than metric labels.
+
+## RED Metrics
+
+Rate, errors, and duration. These signals summarize the user-visible behavior of a request-serving service.
+
+## SLI
+
+Service-level indicator. A measured reliability signal, such as the ratio of successful requests.
+
+## SLO
+
+Service-level objective. A target for an SLI over a time window, such as 99.5% API availability over 30 days.
+
+## Alertmanager
+
+The Prometheus component that groups, deduplicates, routes, and silences alerts after Prometheus decides that an alert condition is active.

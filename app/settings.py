@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     job_lease_seconds: int = Field(default=90, ge=2)
     worker_heartbeat_interval_seconds: int = Field(default=10, ge=1)
     worker_stale_after_seconds: int = Field(default=30, ge=2)
+    worker_metrics_port: int = Field(default=9101, ge=1, le=65535)
+    log_level: str = "INFO"
     database_url: str = "postgresql+psycopg://provisioner:provisioner@localhost:5432/provisioner"
     redis_url: str = "redis://localhost:6379/0"
     secret_key: str = "change-me-in-real-deployments"
